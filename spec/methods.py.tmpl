@@ -1,0 +1,134 @@
+"""
+amqpframe.methods
+~~~~~~~~~~~~~~~~~
+
+Implementation of AMQP methods.
+
+This file was generated {{ gendate }} from
+{{ gensource }}.
+
+"""
+
+import io
+import struct
+import collections
+
+from . import types
+
+
+def select_method(raw: bytes):
+    stream = io.BytesIO(raw)
+    # Unpacking method type, spec 2.3.5.1 Method Frames
+    method_type = struct.unpack('!HH', stream.read(4))
+    return METHODS[method_type].from_bytestream(stream)
+
+
+class BaseMethod:
+    """Base class for all AMQP methods."""
+
+    def __init__(self, *values):
+        assert len(values) == len(self.field_info)
+
+        self.values = collections.OrderedDict()
+        for (name, amqptype), value in zip(self.field_info, values):
+            self.values[name] = amqptype(value)
+
+    @classmethod
+    def from_bytestream(cls, stream):
+        values = []
+        number_of_bits = 0
+        for amqptype in cls.field_info.values():
+            if amqptype is types.Bool:
+                number_of_bits += 1
+                continue
+            elif number_of_bits:
+                # We have some bools but this next field is not a bool
+                val = ord(stream.read(1))
+                values.extend(types.Bool.unpack_many(val, number_of_bits))
+                number_of_bits = 0
+
+            values.append(amqptype.from_bytestream(stream))
+
+        if number_of_bits:
+            val = ord(stream.read(1))
+            values.extend(types.Bool.unpack_many(val, number_of_bits))
+        return cls(*values)
+
+    def to_bytestream(self, stream):
+        # Packing method type, spec 2.3.5.1 Method Frames
+        method_type_bytes = struct.pack('!HH', *self.method_type)
+        stream.write(method_type_bytes)
+        bits = []
+        for value in self.values.values():
+            if isinstance(value, types.Bool):
+                bits.append(value.value)
+            else:
+                if bits:
+                    stream.write(types.Bool.pack_many(bits))
+                    bits = []
+                value.to_bytestream(stream)
+
+        if bits:
+            stream.write(types.Bool.pack_many(bits))
+
+    def __getattr__(self, name):
+        try:
+            return self.fields[name]
+        except KeyError:
+            raise AttributeError('{} object has no attribute {}'.format(
+                type(self).__name__, name
+            )) from None
+
+    def __eq__(self, other):
+        return (self.method_type == other.method_type and
+                self.values == other.values)
+
+
+{% for name, doc, type, fields, synchronous in methods %}
+class {{ name }}(BaseMethod):
+    """{{ doc }}
+    """
+    method_type = {{ type }}
+
+{% if not fields %}
+    field_info = ()
+{% else %}
+    field_info = (
+{% for name, type in fields.items() %}
+        ("{{ name }}", types.{{ type }}),
+{% endfor %}
+    )
+{% endif %}
+
+    synchronous = {{ synchronous }}
+{% if fields %}
+
+    def __init__(self,
+{% for name in fields.keys() %}
+{% if not loop.last %}
+                 {{ name if name != 'global' else 'global_' }},
+{% else %}
+                 {{ name if name != 'global' else 'global_' }}):
+{% endif %}
+{% endfor %}
+        super().__init__(
+{% for name in fields.keys() %}
+             {{ name if name != 'global' else 'global_' }},
+{% endfor %}
+        )
+{% endif %}
+
+
+{% endfor %}
+# Method type -> class dispatch table
+METHODS = {
+{% for name, _, type, _, _ in methods %}
+    {{ type }}: {{ name }},
+{% endfor %}
+}
+
+
+# Constants
+{% for name, value in constants %}
+{{ name }} = {{ value }}
+{% endfor %}
