@@ -4,7 +4,7 @@ amqpframe.methods
 
 Implementation of AMQP methods.
 
-This file was generated 2016-07-30 07:50:32.235832 from
+This file was generated 2016-07-30 16:08:34.898336 from
 /spec/amqp0-9-1.extended.xml.
 
 """
@@ -43,15 +43,15 @@ class BaseMethod:
                 continue
             elif number_of_bits:
                 # We have some bools but this next field is not a bool
-                val = ord(stream.read(1))
-                values.extend(types.Bool.unpack_many(val, number_of_bits))
+                bits = types.Bool.many_from_bytestream(stream, number_of_bits)
+                values.extend(bits)
                 number_of_bits = 0
 
             values.append(amqptype.from_bytestream(stream))
 
         if number_of_bits:
-            val = ord(stream.read(1))
-            values.extend(types.Bool.unpack_many(val, number_of_bits))
+            bits = types.Bool.many_from_bytestream(stream, number_of_bits)
+            values.extend(bits)
         return cls(*values)
 
     def to_bytestream(self, stream):
@@ -64,12 +64,12 @@ class BaseMethod:
                 bits.append(value.value)
             else:
                 if bits:
-                    stream.write(types.Bool.pack_many(bits))
+                    types.Bool.many_to_bytestream(bits, stream)
                     bits = []
                 value.to_bytestream(stream)
 
         if bits:
-            stream.write(types.Bool.pack_many(bits))
+            types.Bool.many_to_bytestream(bits, stream)
 
     def __getattr__(self, name):
         try:
@@ -1702,30 +1702,3 @@ METHODS = {
     (85, 10): ConfirmSelect,
     (85, 11): ConfirmSelectOK,
 }
-
-
-# Constants
-FRAME_METHOD = 1
-FRAME_HEADER = 2
-FRAME_BODY = 3
-FRAME_HEARTBEAT = 8
-FRAME_MIN_SIZE = 4096
-FRAME_END = 206
-REPLY_SUCCESS = 200
-CONTENT_TOO_LARGE = 311
-NO_CONSUMERS = 313
-CONNECTION_FORCED = 320
-INVALID_PATH = 402
-ACCESS_REFUSED = 403
-NOT_FOUND = 404
-RESOURCE_LOCKED = 405
-PRECONDITION_FAILED = 406
-FRAME_ERROR = 501
-SYNTAX_ERROR = 502
-COMMAND_INVALID = 503
-CHANNEL_ERROR = 504
-UNEXPECTED_FRAME = 505
-RESOURCE_ERROR = 506
-NOT_ALLOWED = 530
-NOT_IMPLEMENTED = 540
-INTERNAL_ERROR = 541

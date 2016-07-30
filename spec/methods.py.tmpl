@@ -43,15 +43,15 @@ class BaseMethod:
                 continue
             elif number_of_bits:
                 # We have some bools but this next field is not a bool
-                val = ord(stream.read(1))
-                values.extend(types.Bool.unpack_many(val, number_of_bits))
+                bits = types.Bool.many_from_bytestream(stream, number_of_bits)
+                values.extend(bits)
                 number_of_bits = 0
 
             values.append(amqptype.from_bytestream(stream))
 
         if number_of_bits:
-            val = ord(stream.read(1))
-            values.extend(types.Bool.unpack_many(val, number_of_bits))
+            bits = types.Bool.many_from_bytestream(stream, number_of_bits)
+            values.extend(bits)
         return cls(*values)
 
     def to_bytestream(self, stream):
@@ -64,12 +64,12 @@ class BaseMethod:
                 bits.append(value.value)
             else:
                 if bits:
-                    stream.write(types.Bool.pack_many(bits))
+                    types.Bool.many_to_bytestream(bits, stream)
                     bits = []
                 value.to_bytestream(stream)
 
         if bits:
-            stream.write(types.Bool.pack_many(bits))
+            types.Bool.many_to_bytestream(bits, stream)
 
     def __getattr__(self, name):
         try:
@@ -126,9 +126,3 @@ METHODS = {
     {{ type }}: {{ name }},
 {% endfor %}
 }
-
-
-# Constants
-{% for name, value in constants %}
-{{ name }} = {{ value }}
-{% endfor %}

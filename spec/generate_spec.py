@@ -7,18 +7,9 @@ from collections import OrderedDict
 
 def load_spec(filename):
     tree = ElementTree.parse(filename)
-    constants = get_constants(tree)
     methods = get_methods(tree)
-    return constants, methods
-
-
-def get_constants(tree):
-    constants = []
-    for elem in tree.findall('constant'):
-        name = elem.attrib['name'].replace('-', '_').upper()
-        value = int(elem.attrib['value'])
-        constants.append((name, value))
-    return constants
+    error_classes = get_error_classes(tree)
+    return methods, error_classes
 
 
 def get_methods(tree):
@@ -29,6 +20,24 @@ def get_methods(tree):
             name = cname + mname
             methods.append((name, mdoc, (cid, mid), mfields, synchronous))
     return methods
+
+
+def get_error_classes(tree):
+    classes = []
+    for elem in tree.findall('constant'):
+        kind = elem.attrib.get('class')
+        if kind is None:
+            continue
+        name = elem.attrib['name']
+        value = elem.attrib['value']
+        doc = build_docstring(elem)
+        # Convert name and kind from foo-bar to FooBar
+        name = ''.join(map(str.capitalize, name.split('-')))
+        kind = ''.join(map(str.capitalize, kind.split('-')))
+
+        classes.append((name, value, kind, doc))
+
+    return classes
 
 
 def get_classes(tree):
@@ -70,8 +79,8 @@ def get_classes(tree):
     return classes
 
 
-def build_docstring(method_elem, fields):
-    text = method_elem.find('doc').text.split()
+def build_docstring(elem, fields=None):
+    text = elem.find('doc').text.split()
     doc = []
     line = []
     first = True
@@ -84,6 +93,9 @@ def build_docstring(method_elem, fields):
     if line:
         doc.append(' '.join(line))
     description = '\n    '.join(doc)
+    if fields is None:
+        return description
+
     args_from_fields = ['    {}: {}'.format(n, t) for n, t in fields.items()]
     if args_from_fields:
         args = '\n\n    Arguments:\n    {}'.format(
@@ -99,15 +111,28 @@ if __name__ == '__main__':
     proj_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     spec = '/spec/amqp0-9-1.extended.xml'
     spec_source = proj_dir + spec
-    spec_file = proj_dir + '/amqpframe/methods.py'
-    template_source = proj_dir + '/spec/methods.py.tmpl'
-    constants, methods = load_spec(spec_source)
+    methods_file = proj_dir + '/amqpframe/methods.py'
+    methods_template_source = proj_dir + '/spec/methods.py.tmpl'
+    errors_file = proj_dir + '/amqpframe/errors.py'
+    errors_template_source = proj_dir + '/spec/errors.py.tmpl'
+    methods, error_classes = load_spec(spec_source)
 
     env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True)
-    with open(template_source) as f:
+
+    with open(methods_template_source) as f:
         template = env.from_string(f.read())
     rendered = template.render(
-        gendate=datetime.utcnow(), gensource = spec,
-        methods=methods, constants=constants)
-    with open(spec_file, 'w') as f:
+        gendate=datetime.utcnow(),
+        gensource = spec,
+        methods=methods)
+    with open(methods_file, 'w') as f:
+        f.write(rendered)
+
+    with open(errors_template_source) as f:
+        template = env.from_string(f.read())
+    rendered = template.render(
+        gendate=datetime.utcnow(),
+        gensource = spec,
+        error_classes=error_classes)
+    with open(errors_file, 'w') as f:
         f.write(rendered)

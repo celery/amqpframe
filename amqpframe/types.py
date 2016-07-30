@@ -1,6 +1,17 @@
 import io
 import struct
+import decimal
 import datetime
+import itertools
+
+from . import errors
+
+def grouper(iterable, n, fillvalue=None):
+    """Collect data into fixed-length chunks or blocks"""
+    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
+    args = [iter(iterable)] * n
+    return itertools.zip_longest(*args, fillvalue=fillvalue)
+
 
 # Note some types are not present in table, please refer to
 # https://www.rabbitmq.com/amqp-0-9-1-errata.html#section_3
@@ -14,11 +25,21 @@ class BaseType:
     TABLE_LABEL = None
 
     def to_bytestream(self, stream: io.BytesIO):
-        stream.write(self.pack(self))
+        try:
+            stream.write(self.pack(self))
+        except struct.error:
+            raise errors.InternalError(
+                'Unable to pack {}'.format(self)
+            )
 
     @classmethod
     def from_bytestream(cls, stream: io.BytesIO):
-        x, = cls.unpack(stream)
+        try:
+            x, = cls.unpack(stream)
+        except struct.error:
+            raise errors.SyntaxError(
+                'Unable to unpack {} from the stream'.format(cls.__name__)
+            )
         return cls(x)
 
     @classmethod
@@ -28,6 +49,20 @@ class BaseType:
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         raise NotImplementedError
+
+    def __repr__(self):
+        orig = super().__repr__()
+        return '<{}: {} at {}>'.format(self.__class__.__name__, orig, id(self))
+
+
+def _bytes2bits(byte, reminder):
+    byte = int.from_bytes(byte, byteorder='big')
+    bits = bin(byte)[2:]  # Strip '0b'
+    # Unfortunately, int.from_bytes strips leading zeroes, let's get them back
+    to_fill = (reminder // 8 + 1) * 8
+    bits = bits.zfill(to_fill)
+    # Get rid of unnecessary bits
+    return bits[:reminder]
 
 
 class Bool(BaseType):
@@ -48,17 +83,15 @@ class Bool(BaseType):
     def __bool__(self):
         return self.value
 
-    def to_bytestream(self, stream: io.BytesIO):
-        stream.write(self.pack(self.value))
-
     @classmethod
     def from_bytestream(cls, stream: io.BytesIO):
-        x, = cls.unpack(stream)
+        try:
+            x, = cls.unpack(stream)
+        except struct.error:
+            raise errors.SyntaxError(
+                'Unable to unpack {} from the stream'.format(cls.__name__)
+            )
         return cls(x)
-
-    @classmethod
-    def pack(cls, value):
-        raise NotImplementedError
 
     @classmethod
     def unpack(cls, stream):
@@ -66,18 +99,26 @@ class Bool(BaseType):
 
     @classmethod
     def pack_many(cls, value):
-        total = 0
-        for i, b in enumerate(value):
-            x = 1 if b else 0
-            total += (x << i)
-        return UnsignedByte.pack(total)
+        result = []
+        for values in grouper(value, 8, False):
+            total = ''.join('1' if v else '0' for v in values)
+            result.append(UnsignedByte.pack(int(total, 2)))
+        return b''.join(result)
 
     @classmethod
     def unpack_many(cls, stream, number_of_bits):
-        byte = stream.read(1)
-        bits = bin(byte)[2:]  # Strip '0b'
-        bits = "0" * (number_of_bits - len(bits)) + bits
-        return (b == "1" for b in reversed(bits))
+        bytes_count = number_of_bits // 8 + 1
+        bits = _bytes2bits(stream.read(bytes_count), number_of_bits)
+        return [cls(b == '1') for b in bits]
+
+    @classmethod
+    def many_to_bytestream(cls, bools, stream):
+        packed = cls.pack_many(bools)
+        stream.write(packed)
+
+    @classmethod
+    def many_from_bytestream(cls, stream, number_of_bits):
+        return cls.unpack_many(stream, number_of_bits)
 
 Bit = Bool
 
@@ -92,11 +133,11 @@ class _Bounded:
         return super().__new__(cls, value)
 
 
-class UnsignedByte(BaseType, _Bounded, int):
-    TABLE_LABEL = b'B'
+class SignedByte(BaseType, _Bounded, int):
+    TABLE_LABEL = b'b'
 
-    MIN = 0
-    MAX = (1 << 8) - 1
+    MIN = -(1 << 7)
+    MAX = (1 << 7) - 1
 
     @classmethod
     def pack(cls, value):
@@ -106,14 +147,12 @@ class UnsignedByte(BaseType, _Bounded, int):
     def unpack(cls, stream: io.BytesIO):
         return struct.unpack('!b', stream.read(1))
 
-Octet = UnsignedByte
 
+class UnsignedByte(BaseType, _Bounded, int):
+    TABLE_LABEL = b'B'
 
-class SignedByte(BaseType, _Bounded, int):
-    TABLE_LABEL = b'b'
-
-    MIN = -(1 << 7)
-    MAX = (1 << 7) - 1
+    MIN = 0
+    MAX = (1 << 8) - 1
 
     @classmethod
     def pack(cls, value):
@@ -122,6 +161,8 @@ class SignedByte(BaseType, _Bounded, int):
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         return struct.unpack('!B', stream.read(1))
+
+Octet = UnsignedByte
 
 
 class SignedShort(BaseType, _Bounded, int):
@@ -245,6 +286,29 @@ class Double(BaseType, float):
         return struct.unpack('!d', stream.read(8))
 
 
+class Decimal(BaseType, decimal.Decimal):
+    TABLE_LABEL = b'D'
+
+    @classmethod
+    def pack(cls, value):
+        sign, digits, exponent = value.as_tuple()
+        v = 0
+        for d in digits:
+            v = v * 10 + d
+        if sign:
+            v = -v
+        return UnsignedByte.pack(-exponent) + UnsignedLong.pack(v)
+
+    @classmethod
+    def unpack(cls, stream: io.BytesIO):
+        total = 0
+        exponent, consumed = UnsignedByte.unpack(stream)
+        total += consumed
+        v, consumed = UnsignedLong.unpack(stream)
+        total += consumed
+        return cls(v) / cls(10 ** exponent), consumed
+
+
 class ShortStr(BaseType, str):
     # Missing in rabbitmq/qpid
     TABLE_LABEL = None
@@ -274,7 +338,7 @@ class LongStr(BaseType, str):
     TABLE_LABEL = b'S'
 
     def __new__(cls, value: str):
-        assert len(value) > UnsignedLong.MAX
+        assert len(value) < UnsignedLong.MAX
         return super().__new__(cls, value)
 
     @classmethod
@@ -408,19 +472,6 @@ class Array(BaseType, list):
 
             result.append(value)
         return result, consumed
-
-
-FIELD_TYPES = {
-    'bit': Bool,
-    'octet': UnsignedByte,
-    'short': UnsignedShort,
-    'long': UnsignedLong,
-    'longlong': UnsignedLongLong,
-    'longstr': LongStr,
-    'shortstr': ShortStr,
-    'table': Table,
-    'timestamp': Timestamp
-}
 
 
 TABLE_LABEL_TO_CLS = {cls.TABLE_LABEL: cls

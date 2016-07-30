@@ -1,0 +1,36 @@
+"""
+amqpframe.errors
+~~~~~~~~~~~~~~~~
+
+AMQP errors classes.
+
+This file was generated {{ gendate }} from
+{{ gensource }}.
+
+"""
+
+
+class Error(Exception):
+    """Base class for all AMQP errors."""
+    code = None
+
+
+class SoftError(Error):
+    """Soft errors are recoverable which means if such error happens,
+    only the channel where the error happened closes, other channels
+    can continue to operate.
+    """
+
+
+class HardError(Error):
+    """Hard errors are not recoverable which means if such error happens,
+    the whole connection must be closed as soon as possible.
+    """
+{% for name, value, kind, doc in error_classes %}
+
+
+class {{ name }}({{ kind }}):
+    """{{ doc }}
+    """
+    code = {{ value }}
+{% endfor %}
