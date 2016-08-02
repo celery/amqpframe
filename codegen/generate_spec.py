@@ -109,12 +109,12 @@ def build_docstring(elem, fields=None):
 if __name__ == '__main__':
     import jinja2
     proj_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    spec = '/spec/amqp0-9-1.extended.xml'
+    spec = '/codegen/amqp0-9-1.extended.xml'
     spec_source = proj_dir + spec
     methods_file = proj_dir + '/amqpframe/methods.py'
-    methods_template_source = proj_dir + '/spec/methods.py.tmpl'
+    methods_template_source = proj_dir + '/codegen/methods.py.tmpl'
     errors_file = proj_dir + '/amqpframe/errors.py'
-    errors_template_source = proj_dir + '/spec/errors.py.tmpl'
+    errors_template_source = proj_dir + '/codegen/errors.py.tmpl'
     methods, error_classes = load_spec(spec_source)
 
     env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True)

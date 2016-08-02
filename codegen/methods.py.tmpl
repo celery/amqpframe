@@ -9,21 +9,12 @@ This file was generated {{ gendate }} from
 
 """
 
-import io
-import struct
 import collections
 
 from . import types
 
 
-def select_method(raw: bytes):
-    stream = io.BytesIO(raw)
-    # Unpacking method type, spec 2.3.5.1 Method Frames
-    method_type = struct.unpack('!HH', stream.read(4))
-    return METHODS[method_type].from_bytestream(stream)
-
-
-class BaseMethod:
+class Method:
     """Base class for all AMQP methods."""
 
     def __init__(self, *values):
@@ -35,9 +26,14 @@ class BaseMethod:
 
     @classmethod
     def from_bytestream(cls, stream):
+        # Unpacking method type, spec 2.3.5.1 Method Frames
+        class_id = types.UnsignedShort.from_bytestream(stream)
+        method_id = types.UnsignedShort.from_bytestream(stream)
+        method_cls = METHODS[(class_id, method_id)]
+
         values = []
         number_of_bits = 0
-        for amqptype in cls.field_info.values():
+        for amqptype in method_cls.field_info.values():
             if amqptype is types.Bool:
                 number_of_bits += 1
                 continue
@@ -52,12 +48,12 @@ class BaseMethod:
         if number_of_bits:
             bits = types.Bool.many_from_bytestream(stream, number_of_bits)
             values.extend(bits)
-        return cls(*values)
+        return method_cls(*values)
 
     def to_bytestream(self, stream):
         # Packing method type, spec 2.3.5.1 Method Frames
-        method_type_bytes = struct.pack('!HH', *self.method_type)
-        stream.write(method_type_bytes)
+        types.UnsignedShort(self.method_type[0]).to_bytestream(stream)
+        types.UnsignedShort(self.method_type[1]).to_bytestream(stream)
         bits = []
         for value in self.values.values():
             if isinstance(value, types.Bool):
@@ -85,7 +81,7 @@ class BaseMethod:
 
 
 {% for name, doc, type, fields, synchronous in methods %}
-class {{ name }}(BaseMethod):
+class {{ name }}(Method):
     """{{ doc }}
     """
     method_type = {{ type }}
