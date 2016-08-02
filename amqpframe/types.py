@@ -343,10 +343,7 @@ class LongStr(BaseType, str):
 
     @classmethod
     def pack(cls, value):
-        if isinstance(value, str):
-            buffer = value.encode('utf-8')
-        else:
-            buffer = value
+        buffer = value.encode('utf-8')
         return UnsignedLong.pack(len(buffer)) + buffer
 
     @classmethod
@@ -354,7 +351,8 @@ class LongStr(BaseType, str):
         str_len, consumed = UnsignedLong.unpack(stream)
         value = stream.read(str_len)
         assert len(value) == str_len
-        return value.decode('utf-8'), consumed + str_len
+        value = value.decode('utf-8')
+        return value, consumed + str_len
 
 Longstr = LongStr
 
@@ -382,11 +380,14 @@ class ByteArray(BaseType, bytes):
 
     @classmethod
     def pack(cls, value):
-        return LongStr.pack(value)
+        return UnsignedLong.pack(len(value)) + value
 
     @classmethod
     def unpack(cls, stream: io.BytesIO):
-        return LongStr.unpack(stream)
+        str_len, consumed = UnsignedLong.unpack(stream)
+        value = stream.read(str_len)
+        assert len(value) == str_len
+        return value, consumed + str_len
 
 
 class Timestamp(BaseType, datetime.datetime):

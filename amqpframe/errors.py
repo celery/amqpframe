@@ -4,8 +4,8 @@ amqpframe.errors
 
 AMQP errors classes.
 
-This file was generated 2016-07-30 16:08:34.908515 from
-/spec/amqp0-9-1.extended.xml.
+This file was generated 2016-08-01 12:38:47.211915 from
+/codegen/amqp0-9-1.extended.xml.
 
 """
 

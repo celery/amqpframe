@@ -4,26 +4,17 @@ amqpframe.methods
 
 Implementation of AMQP methods.
 
-This file was generated 2016-07-30 16:08:34.898336 from
-/spec/amqp0-9-1.extended.xml.
+This file was generated 2016-08-01 12:38:47.206185 from
+/codegen/amqp0-9-1.extended.xml.
 
 """
 
-import io
-import struct
 import collections
 
 from . import types
 
 
-def select_method(raw: bytes):
-    stream = io.BytesIO(raw)
-    # Unpacking method type, spec 2.3.5.1 Method Frames
-    method_type = struct.unpack('!HH', stream.read(4))
-    return METHODS[method_type].from_bytestream(stream)
-
-
-class BaseMethod:
+class Method:
     """Base class for all AMQP methods."""
 
     def __init__(self, *values):
@@ -35,9 +26,14 @@ class BaseMethod:
 
     @classmethod
     def from_bytestream(cls, stream):
+        # Unpacking method type, spec 2.3.5.1 Method Frames
+        class_id = types.UnsignedShort.from_bytestream(stream)
+        method_id = types.UnsignedShort.from_bytestream(stream)
+        method_cls = METHODS[(class_id, method_id)]
+
         values = []
         number_of_bits = 0
-        for amqptype in cls.field_info.values():
+        for amqptype in method_cls.field_info.values():
             if amqptype is types.Bool:
                 number_of_bits += 1
                 continue
@@ -52,12 +48,12 @@ class BaseMethod:
         if number_of_bits:
             bits = types.Bool.many_from_bytestream(stream, number_of_bits)
             values.extend(bits)
-        return cls(*values)
+        return method_cls(*values)
 
     def to_bytestream(self, stream):
         # Packing method type, spec 2.3.5.1 Method Frames
-        method_type_bytes = struct.pack('!HH', *self.method_type)
-        stream.write(method_type_bytes)
+        types.UnsignedShort(self.method_type[0]).to_bytestream(stream)
+        types.UnsignedShort(self.method_type[1]).to_bytestream(stream)
         bits = []
         for value in self.values.values():
             if isinstance(value, types.Bool):
@@ -84,7 +80,7 @@ class BaseMethod:
                 self.values == other.values)
 
 
-class ConnectionStart(BaseMethod):
+class ConnectionStart(Method):
     """This method starts the connection negotiation process by telling the
     client the protocol version that the server proposes, along with a list of
     security mechanisms which the client can use for authentication.
@@ -123,7 +119,7 @@ class ConnectionStart(BaseMethod):
         )
 
 
-class ConnectionStartOK(BaseMethod):
+class ConnectionStartOK(Method):
     """This method selects a SASL security mechanism.
 
     Arguments:
@@ -156,7 +152,7 @@ class ConnectionStartOK(BaseMethod):
         )
 
 
-class ConnectionSecure(BaseMethod):
+class ConnectionSecure(Method):
     """The SASL protocol works by exchanging challenges and responses until
     both peers have received sufficient information to authenticate each other.
     This method challenges the client to provide more information.
@@ -179,7 +175,7 @@ class ConnectionSecure(BaseMethod):
         )
 
 
-class ConnectionSecureOK(BaseMethod):
+class ConnectionSecureOK(Method):
     """This method attempts to authenticate, passing a block of SASL data for
     the security mechanism at the server side.
 
@@ -201,7 +197,7 @@ class ConnectionSecureOK(BaseMethod):
         )
 
 
-class ConnectionTune(BaseMethod):
+class ConnectionTune(Method):
     """This method proposes a set of connection configuration values to the
     client. The client can accept and/or adjust these.
 
@@ -231,7 +227,7 @@ class ConnectionTune(BaseMethod):
         )
 
 
-class ConnectionTuneOK(BaseMethod):
+class ConnectionTuneOK(Method):
     """This method sends the client's connection tuning parameters to the
     server. Certain fields are negotiated, others provide capability
     information.
@@ -262,7 +258,7 @@ class ConnectionTuneOK(BaseMethod):
         )
 
 
-class ConnectionOpen(BaseMethod):
+class ConnectionOpen(Method):
     """This method opens a connection to a virtual host, which is a collection
     of resources, and acts to separate multiple application domains within a
     server. The server may apply arbitrary limits per virtual host, such as the
@@ -295,7 +291,7 @@ class ConnectionOpen(BaseMethod):
         )
 
 
-class ConnectionOpenOK(BaseMethod):
+class ConnectionOpenOK(Method):
     """This method signals to the client that the connection is ready for use.
 
     Arguments:
@@ -316,7 +312,7 @@ class ConnectionOpenOK(BaseMethod):
         )
 
 
-class ConnectionClose(BaseMethod):
+class ConnectionClose(Method):
     """This method indicates that the sender wants to close the connection.
     This may be due to internal conditions (e.g. a forced shut-down) or due to
     an error handling a specific method, i.e. an exception. When a close is due
@@ -353,7 +349,7 @@ class ConnectionClose(BaseMethod):
         )
 
 
-class ConnectionCloseOK(BaseMethod):
+class ConnectionCloseOK(Method):
     """This method confirms a Connection.Close method and tells the recipient
     that it is safe to release resources for the connection and close the
     socket.
@@ -365,7 +361,7 @@ class ConnectionCloseOK(BaseMethod):
     synchronous = True
 
 
-class ChannelOpen(BaseMethod):
+class ChannelOpen(Method):
     """This method opens a channel to the server.
 
     Arguments:
@@ -386,7 +382,7 @@ class ChannelOpen(BaseMethod):
         )
 
 
-class ChannelOpenOK(BaseMethod):
+class ChannelOpenOK(Method):
     """This method signals to the client that the channel is ready for use.
 
     Arguments:
@@ -407,7 +403,7 @@ class ChannelOpenOK(BaseMethod):
         )
 
 
-class ChannelFlow(BaseMethod):
+class ChannelFlow(Method):
     """This method asks the peer to pause or restart the flow of content data
     sent by a consumer. This is a simple flow-control mechanism that a peer can
     use to avoid overflowing its queues or otherwise finding itself receiving
@@ -433,7 +429,7 @@ class ChannelFlow(BaseMethod):
         )
 
 
-class ChannelFlowOK(BaseMethod):
+class ChannelFlowOK(Method):
     """Confirms to the peer that a flow command was received and processed.
 
     Arguments:
@@ -454,7 +450,7 @@ class ChannelFlowOK(BaseMethod):
         )
 
 
-class ChannelClose(BaseMethod):
+class ChannelClose(Method):
     """This method indicates that the sender wants to close the channel. This
     may be due to internal conditions (e.g. a forced shut-down) or due to an
     error handling a specific method, i.e. an exception. When a close is due to
@@ -491,7 +487,7 @@ class ChannelClose(BaseMethod):
         )
 
 
-class ChannelCloseOK(BaseMethod):
+class ChannelCloseOK(Method):
     """This method confirms a Channel.Close method and tells the recipient
     that it is safe to release resources for the channel.
     """
@@ -502,7 +498,7 @@ class ChannelCloseOK(BaseMethod):
     synchronous = True
 
 
-class ExchangeDeclare(BaseMethod):
+class ExchangeDeclare(Method):
     """This method creates an exchange if it does not already exist, and if
     the exchange exists, verifies that it is of the correct and expected class.
 
@@ -556,7 +552,7 @@ class ExchangeDeclare(BaseMethod):
         )
 
 
-class ExchangeDeclareOK(BaseMethod):
+class ExchangeDeclareOK(Method):
     """This method confirms a Declare method and confirms the name of the
     exchange, essential for automatically-named exchanges.
     """
@@ -567,7 +563,7 @@ class ExchangeDeclareOK(BaseMethod):
     synchronous = True
 
 
-class ExchangeDelete(BaseMethod):
+class ExchangeDelete(Method):
     """This method deletes an exchange. When an exchange is deleted all queue
     bindings on the exchange are cancelled.
 
@@ -601,7 +597,7 @@ class ExchangeDelete(BaseMethod):
         )
 
 
-class ExchangeDeleteOK(BaseMethod):
+class ExchangeDeleteOK(Method):
     """This method confirms the deletion of an exchange.
     """
     method_type = (40, 21)
@@ -611,7 +607,7 @@ class ExchangeDeleteOK(BaseMethod):
     synchronous = True
 
 
-class ExchangeBind(BaseMethod):
+class ExchangeBind(Method):
     """This method binds an exchange to an exchange.
 
     Arguments:
@@ -652,7 +648,7 @@ class ExchangeBind(BaseMethod):
         )
 
 
-class ExchangeBindOK(BaseMethod):
+class ExchangeBindOK(Method):
     """This method confirms that the bind was successful.
     """
     method_type = (40, 31)
@@ -662,7 +658,7 @@ class ExchangeBindOK(BaseMethod):
     synchronous = True
 
 
-class ExchangeUnbind(BaseMethod):
+class ExchangeUnbind(Method):
     """This method unbinds an exchange from an exchange.
 
     Arguments:
@@ -703,7 +699,7 @@ class ExchangeUnbind(BaseMethod):
         )
 
 
-class ExchangeUnbindOK(BaseMethod):
+class ExchangeUnbindOK(Method):
     """This method confirms that the unbind was successful.
     """
     method_type = (40, 51)
@@ -713,7 +709,7 @@ class ExchangeUnbindOK(BaseMethod):
     synchronous = True
 
 
-class QueueDeclare(BaseMethod):
+class QueueDeclare(Method):
     """This method creates or checks a queue. When creating a new queue the
     client can specify various properties that control the durability of the
     queue and its contents, and the level of sharing for the queue.
@@ -764,7 +760,7 @@ class QueueDeclare(BaseMethod):
         )
 
 
-class QueueDeclareOK(BaseMethod):
+class QueueDeclareOK(Method):
     """This method confirms a Declare method and confirms the name of the
     queue, essential for automatically-named queues.
 
@@ -794,7 +790,7 @@ class QueueDeclareOK(BaseMethod):
         )
 
 
-class QueueBind(BaseMethod):
+class QueueBind(Method):
     """This method binds a queue to an exchange. Until a queue is bound it
     will not receive any messages. In a classic messaging model,
     store-and-forward queues are bound to a direct exchange and subscription
@@ -838,7 +834,7 @@ class QueueBind(BaseMethod):
         )
 
 
-class QueueBindOK(BaseMethod):
+class QueueBindOK(Method):
     """This method confirms that the bind was successful.
     """
     method_type = (50, 21)
@@ -848,7 +844,7 @@ class QueueBindOK(BaseMethod):
     synchronous = True
 
 
-class QueueUnbind(BaseMethod):
+class QueueUnbind(Method):
     """This method unbinds a queue from an exchange.
 
     Arguments:
@@ -885,7 +881,7 @@ class QueueUnbind(BaseMethod):
         )
 
 
-class QueueUnbindOK(BaseMethod):
+class QueueUnbindOK(Method):
     """This method confirms that the unbind was successful.
     """
     method_type = (50, 51)
@@ -895,7 +891,7 @@ class QueueUnbindOK(BaseMethod):
     synchronous = True
 
 
-class QueuePurge(BaseMethod):
+class QueuePurge(Method):
     """This method removes all messages from a queue which are not awaiting
     acknowledgment.
 
@@ -925,7 +921,7 @@ class QueuePurge(BaseMethod):
         )
 
 
-class QueuePurgeOK(BaseMethod):
+class QueuePurgeOK(Method):
     """This method confirms the purge of a queue.
 
     Arguments:
@@ -946,7 +942,7 @@ class QueuePurgeOK(BaseMethod):
         )
 
 
-class QueueDelete(BaseMethod):
+class QueueDelete(Method):
     """This method deletes a queue. When a queue is deleted any pending
     messages are sent to a dead-letter queue if this is defined in the server
     configuration, and all consumers on the queue are cancelled.
@@ -985,7 +981,7 @@ class QueueDelete(BaseMethod):
         )
 
 
-class QueueDeleteOK(BaseMethod):
+class QueueDeleteOK(Method):
     """This method confirms the deletion of a queue.
 
     Arguments:
@@ -1006,7 +1002,7 @@ class QueueDeleteOK(BaseMethod):
         )
 
 
-class BasicQos(BaseMethod):
+class BasicQos(Method):
     """This method requests a specific quality of service. The QoS can be
     specified for the current channel or for all channels on the connection.
     The particular properties and semantics of a qos method always depend on
@@ -1039,7 +1035,7 @@ class BasicQos(BaseMethod):
         )
 
 
-class BasicQosOK(BaseMethod):
+class BasicQosOK(Method):
     """This method tells the client that the requested QoS levels could be
     handled by the server. The requested QoS applies to all active consumers
     until a new QoS is defined.
@@ -1051,7 +1047,7 @@ class BasicQosOK(BaseMethod):
     synchronous = True
 
 
-class BasicConsume(BaseMethod):
+class BasicConsume(Method):
     """This method asks the server to start a "consumer", which is a transient
     request for messages from a specific queue. Consumers last as long as the
     channel they were declared on, or until the client cancels them.
@@ -1102,7 +1098,7 @@ class BasicConsume(BaseMethod):
         )
 
 
-class BasicConsumeOK(BaseMethod):
+class BasicConsumeOK(Method):
     """The server provides the client with a consumer tag, which is used by
     the client for methods called on the consumer at a later stage.
 
@@ -1124,7 +1120,7 @@ class BasicConsumeOK(BaseMethod):
         )
 
 
-class BasicCancel(BaseMethod):
+class BasicCancel(Method):
     """This method cancels a consumer. This does not affect already delivered
     messages, but it does mean the server will not send any more messages for
     that consumer. The client may receive an arbitrary number of messages in
@@ -1160,7 +1156,7 @@ class BasicCancel(BaseMethod):
         )
 
 
-class BasicCancelOK(BaseMethod):
+class BasicCancelOK(Method):
     """This method confirms that the cancellation was completed.
 
     Arguments:
@@ -1181,7 +1177,7 @@ class BasicCancelOK(BaseMethod):
         )
 
 
-class BasicPublish(BaseMethod):
+class BasicPublish(Method):
     """This method publishes a message to a specific exchange. The message
     will be routed to queues as defined by the exchange configuration and
     distributed to any active consumers when the transaction, if any, is
@@ -1221,7 +1217,7 @@ class BasicPublish(BaseMethod):
         )
 
 
-class BasicReturn(BaseMethod):
+class BasicReturn(Method):
     """This method returns an undeliverable message that was published with
     the "immediate" flag set, or an unroutable message published with the
     "mandatory" flag set. The reply code and text provide information about the
@@ -1257,7 +1253,7 @@ class BasicReturn(BaseMethod):
         )
 
 
-class BasicDeliver(BaseMethod):
+class BasicDeliver(Method):
     """This method delivers a message to the client, via a consumer. In the
     asynchronous message delivery model, the client starts a consumer using the
     Consume method, then the server responds with Deliver methods as and when
@@ -1297,7 +1293,7 @@ class BasicDeliver(BaseMethod):
         )
 
 
-class BasicGet(BaseMethod):
+class BasicGet(Method):
     """This method provides a direct access to the messages in a queue using a
     synchronous dialogue that is designed for specific types of application
     where synchronous functionality is more important than performance.
@@ -1328,7 +1324,7 @@ class BasicGet(BaseMethod):
         )
 
 
-class BasicGetOK(BaseMethod):
+class BasicGetOK(Method):
     """This method delivers a message to the client following a get method. A
     message delivered by 'get-ok' must be acknowledged unless the no-ack option
     was set in the get method.
@@ -1367,7 +1363,7 @@ class BasicGetOK(BaseMethod):
         )
 
 
-class BasicGetEmpty(BaseMethod):
+class BasicGetEmpty(Method):
     """This method tells the client that the queue has no messages available
     for the client.
 
@@ -1389,7 +1385,7 @@ class BasicGetEmpty(BaseMethod):
         )
 
 
-class BasicAck(BaseMethod):
+class BasicAck(Method):
     """When sent by the client, this method acknowledges one or more messages
     delivered via the Deliver or Get-Ok methods. When sent by server, this
     method acknowledges one or more messages published with the Publish method
@@ -1418,7 +1414,7 @@ class BasicAck(BaseMethod):
         )
 
 
-class BasicReject(BaseMethod):
+class BasicReject(Method):
     """This method allows a client to reject a message. It can be used to
     interrupt and cancel large incoming messages, or return untreatable
     messages to their original queue.
@@ -1445,7 +1441,7 @@ class BasicReject(BaseMethod):
         )
 
 
-class BasicRecoverAsync(BaseMethod):
+class BasicRecoverAsync(Method):
     """This method asks the server to redeliver all unacknowledged messages on
     a specified channel. Zero or more messages may be redelivered. This method
     is deprecated in favour of the synchronous Recover/Recover-Ok.
@@ -1468,7 +1464,7 @@ class BasicRecoverAsync(BaseMethod):
         )
 
 
-class BasicRecover(BaseMethod):
+class BasicRecover(Method):
     """This method asks the server to redeliver all unacknowledged messages on
     a specified channel. Zero or more messages may be redelivered. This method
     replaces the asynchronous Recover.
@@ -1491,7 +1487,7 @@ class BasicRecover(BaseMethod):
         )
 
 
-class BasicRecoverOK(BaseMethod):
+class BasicRecoverOK(Method):
     """This method acknowledges a Basic.Recover method.
     """
     method_type = (60, 111)
@@ -1501,7 +1497,7 @@ class BasicRecoverOK(BaseMethod):
     synchronous = True
 
 
-class BasicNack(BaseMethod):
+class BasicNack(Method):
     """This method allows a client to reject one or more incoming messages. It
     can be used to interrupt and cancel large incoming messages, or return
     untreatable messages to their original queue. This method is also used by
@@ -1535,7 +1531,7 @@ class BasicNack(BaseMethod):
         )
 
 
-class TxSelect(BaseMethod):
+class TxSelect(Method):
     """This method sets the channel to use standard transactions. The client
     must use this method at least once on a channel before using the Commit or
     Rollback methods.
@@ -1547,7 +1543,7 @@ class TxSelect(BaseMethod):
     synchronous = True
 
 
-class TxSelectOK(BaseMethod):
+class TxSelectOK(Method):
     """This method confirms to the client that the channel was successfully
     set to use standard transactions.
     """
@@ -1558,7 +1554,7 @@ class TxSelectOK(BaseMethod):
     synchronous = True
 
 
-class TxCommit(BaseMethod):
+class TxCommit(Method):
     """This method commits all message publications and acknowledgments
     performed in the current transaction. A new transaction starts immediately
     after a commit.
@@ -1570,7 +1566,7 @@ class TxCommit(BaseMethod):
     synchronous = True
 
 
-class TxCommitOK(BaseMethod):
+class TxCommitOK(Method):
     """This method confirms to the client that the commit succeeded. Note that
     if a commit fails, the server raises a channel exception.
     """
@@ -1581,7 +1577,7 @@ class TxCommitOK(BaseMethod):
     synchronous = True
 
 
-class TxRollback(BaseMethod):
+class TxRollback(Method):
     """This method abandons all message publications and acknowledgments
     performed in the current transaction. A new transaction starts immediately
     after a rollback. Note that unacked messages will not be automatically
@@ -1595,7 +1591,7 @@ class TxRollback(BaseMethod):
     synchronous = True
 
 
-class TxRollbackOK(BaseMethod):
+class TxRollbackOK(Method):
     """This method confirms to the client that the rollback succeeded. Note
     that if an rollback fails, the server raises a channel exception.
     """
@@ -1606,7 +1602,7 @@ class TxRollbackOK(BaseMethod):
     synchronous = True
 
 
-class ConfirmSelect(BaseMethod):
+class ConfirmSelect(Method):
     """This method sets the channel to use publisher acknowledgements. The
     client can only use this method on a non-transactional channel.
 
@@ -1628,7 +1624,7 @@ class ConfirmSelect(BaseMethod):
         )
 
 
-class ConfirmSelectOK(BaseMethod):
+class ConfirmSelectOK(Method):
     """This method confirms to the client that the channel was successfully
     set to use publisher acknowledgements.
     """
