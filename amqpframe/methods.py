@@ -4,11 +4,11 @@ amqpframe.methods
 
 Implementation of AMQP methods.
 
-This file was generated 2016-08-01 12:38:47.206185 from
+This file was generated 2016-08-05 from
 /codegen/amqp0-9-1.extended.xml.
 
 """
-
+import datadiff
 import collections
 
 from . import types
@@ -22,7 +22,11 @@ class Method:
 
         self.values = collections.OrderedDict()
         for (name, amqptype), value in zip(self.field_info, values):
-            self.values[name] = amqptype(value)
+            if value is None:
+                value = amqptype()
+            else:
+                value = amqptype(value)
+            self.values[name] = value
 
     @classmethod
     def from_bytestream(cls, stream):
@@ -31,24 +35,34 @@ class Method:
         method_id = types.UnsignedShort.from_bytestream(stream)
         method_cls = METHODS[(class_id, method_id)]
 
-        values = []
+        kwargs = {}
+        bit_names = []
         number_of_bits = 0
-        for amqptype in method_cls.field_info.values():
+        for name, amqptype in method_cls.field_info:
+            if name == 'global':
+                name = 'global_'
+
             if amqptype is types.Bool:
                 number_of_bits += 1
+                bit_names.append(name)
                 continue
             elif number_of_bits:
                 # We have some bools but this next field is not a bool
                 bits = types.Bool.many_from_bytestream(stream, number_of_bits)
-                values.extend(bits)
+                for bit_name, bit in zip(bit_names, bits):
+                    kwargs[bit_name] = bit
                 number_of_bits = 0
+                bit_names.clear()
 
-            values.append(amqptype.from_bytestream(stream))
+            kwargs[name] = amqptype.from_bytestream(stream)
 
         if number_of_bits:
             bits = types.Bool.many_from_bytestream(stream, number_of_bits)
-            values.extend(bits)
-        return method_cls(*values)
+            for name, bit in zip(bit_names, bits):
+                kwargs[name] = bit
+            number_of_bits = 0
+            bit_names.clear()
+        return method_cls(**kwargs)
 
     def to_bytestream(self, stream):
         # Packing method type, spec 2.3.5.1 Method Frames
@@ -69,7 +83,7 @@ class Method:
 
     def __getattr__(self, name):
         try:
-            return self.fields[name]
+            return self.values[name]
         except KeyError:
             raise AttributeError('{} object has no attribute {}'.format(
                 type(self).__name__, name
@@ -78,6 +92,11 @@ class Method:
     def __eq__(self, other):
         return (self.method_type == other.method_type and
                 self.values == other.values)
+
+    def __repr__(self):
+        return '<{}: {}>'.format(self.__class__.__qualname__,
+                                 ' '.join('{}={}'.format(k, v)
+                                          for k, v in self.values.items()))
 
 
 class ConnectionStart(Method):
@@ -104,7 +123,7 @@ class ConnectionStart(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  version_major,
                  version_minor,
                  server_properties,
@@ -139,7 +158,7 @@ class ConnectionStartOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  client_properties,
                  mechanism,
                  response,
@@ -168,7 +187,7 @@ class ConnectionSecure(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  challenge):
         super().__init__(
              challenge,
@@ -190,7 +209,7 @@ class ConnectionSecureOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  response):
         super().__init__(
              response,
@@ -216,7 +235,7 @@ class ConnectionTune(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  channel_max,
                  frame_max,
                  heartbeat):
@@ -247,7 +266,7 @@ class ConnectionTuneOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  channel_max,
                  frame_max,
                  heartbeat):
@@ -280,14 +299,14 @@ class ConnectionOpen(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  virtual_host,
-                 reserved_1,
-                 reserved_2):
+                 reserved_1=None,
+                 reserved_2=None):
         super().__init__(
              virtual_host,
-             reserved_1,
-             reserved_2,
+             types.Shortstr(),
+             types.Bit(),
         )
 
 
@@ -305,10 +324,10 @@ class ConnectionOpenOK(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1):
+    def __init__(self, *,
+                 reserved_1=None):
         super().__init__(
-             reserved_1,
+             types.Shortstr(),
         )
 
 
@@ -336,7 +355,7 @@ class ConnectionClose(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  reply_code,
                  reply_text,
                  class_id,
@@ -375,10 +394,10 @@ class ChannelOpen(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1):
+    def __init__(self, *,
+                 reserved_1=None):
         super().__init__(
-             reserved_1,
+             types.Shortstr(),
         )
 
 
@@ -396,10 +415,10 @@ class ChannelOpenOK(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1):
+    def __init__(self, *,
+                 reserved_1=None):
         super().__init__(
-             reserved_1,
+             types.Longstr(),
         )
 
 
@@ -422,7 +441,7 @@ class ChannelFlow(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  active):
         super().__init__(
              active,
@@ -443,7 +462,7 @@ class ChannelFlowOK(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  active):
         super().__init__(
              active,
@@ -474,7 +493,7 @@ class ChannelClose(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  reply_code,
                  reply_text,
                  class_id,
@@ -529,8 +548,8 @@ class ExchangeDeclare(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  exchange,
                  type,
                  passive,
@@ -540,7 +559,7 @@ class ExchangeDeclare(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              exchange,
              type,
              passive,
@@ -584,13 +603,13 @@ class ExchangeDelete(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  exchange,
                  if_unused,
                  no_wait):
         super().__init__(
-             reserved_1,
+             types.Short(),
              exchange,
              if_unused,
              no_wait,
@@ -631,15 +650,15 @@ class ExchangeBind(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  destination,
                  source,
                  routing_key,
                  no_wait,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              destination,
              source,
              routing_key,
@@ -682,15 +701,15 @@ class ExchangeUnbind(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  destination,
                  source,
                  routing_key,
                  no_wait,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              destination,
              source,
              routing_key,
@@ -739,8 +758,8 @@ class QueueDeclare(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  passive,
                  durable,
@@ -749,7 +768,7 @@ class QueueDeclare(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              passive,
              durable,
@@ -779,7 +798,7 @@ class QueueDeclareOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  queue,
                  message_count,
                  consumer_count):
@@ -817,15 +836,15 @@ class QueueBind(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  exchange,
                  routing_key,
                  no_wait,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              exchange,
              routing_key,
@@ -866,14 +885,14 @@ class QueueUnbind(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  exchange,
                  routing_key,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              exchange,
              routing_key,
@@ -910,12 +929,12 @@ class QueuePurge(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  no_wait):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              no_wait,
         )
@@ -935,7 +954,7 @@ class QueuePurgeOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  message_count):
         super().__init__(
              message_count,
@@ -966,14 +985,14 @@ class QueueDelete(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  if_unused,
                  if_empty,
                  no_wait):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              if_unused,
              if_empty,
@@ -995,7 +1014,7 @@ class QueueDeleteOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  message_count):
         super().__init__(
              message_count,
@@ -1024,7 +1043,7 @@ class BasicQos(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  prefetch_size,
                  prefetch_count,
                  global_):
@@ -1077,8 +1096,8 @@ class BasicConsume(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  consumer_tag,
                  no_local,
@@ -1087,7 +1106,7 @@ class BasicConsume(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              consumer_tag,
              no_local,
@@ -1113,7 +1132,7 @@ class BasicConsumeOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  consumer_tag):
         super().__init__(
              consumer_tag,
@@ -1147,7 +1166,7 @@ class BasicCancel(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  consumer_tag,
                  no_wait):
         super().__init__(
@@ -1170,7 +1189,7 @@ class BasicCancelOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  consumer_tag):
         super().__init__(
              consumer_tag,
@@ -1202,14 +1221,14 @@ class BasicPublish(Method):
 
     synchronous = False
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  exchange,
                  routing_key,
                  mandatory,
                  immediate):
         super().__init__(
-             reserved_1,
+             types.Short(),
              exchange,
              routing_key,
              mandatory,
@@ -1240,7 +1259,7 @@ class BasicReturn(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  reply_code,
                  reply_text,
                  exchange,
@@ -1278,7 +1297,7 @@ class BasicDeliver(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  consumer_tag,
                  delivery_tag,
                  redelivered,
@@ -1313,12 +1332,12 @@ class BasicGet(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1,
+    def __init__(self, *,
+                 reserved_1=None,
                  queue,
                  no_ack):
         super().__init__(
-             reserved_1,
+             types.Short(),
              queue,
              no_ack,
         )
@@ -1348,7 +1367,7 @@ class BasicGetOK(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  delivery_tag,
                  redelivered,
                  exchange,
@@ -1378,10 +1397,10 @@ class BasicGetEmpty(Method):
 
     synchronous = True
 
-    def __init__(self,
-                 reserved_1):
+    def __init__(self, *,
+                 reserved_1=None):
         super().__init__(
-             reserved_1,
+             types.Shortstr(),
         )
 
 
@@ -1405,7 +1424,7 @@ class BasicAck(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  delivery_tag,
                  multiple):
         super().__init__(
@@ -1432,7 +1451,7 @@ class BasicReject(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  delivery_tag,
                  requeue):
         super().__init__(
@@ -1457,7 +1476,7 @@ class BasicRecoverAsync(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  requeue):
         super().__init__(
              requeue,
@@ -1480,7 +1499,7 @@ class BasicRecover(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  requeue):
         super().__init__(
              requeue,
@@ -1520,7 +1539,7 @@ class BasicNack(Method):
 
     synchronous = False
 
-    def __init__(self,
+    def __init__(self, *,
                  delivery_tag,
                  multiple,
                  requeue):
@@ -1617,7 +1636,7 @@ class ConfirmSelect(Method):
 
     synchronous = True
 
-    def __init__(self,
+    def __init__(self, *,
                  nowait):
         super().__init__(
              nowait,
