@@ -8,7 +8,7 @@ This file was generated {{ gendate }} from
 {{ gensource }}.
 
 """
-
+import datadiff
 import collections
 
 from . import types
@@ -22,7 +22,11 @@ class Method:
 
         self.values = collections.OrderedDict()
         for (name, amqptype), value in zip(self.field_info, values):
-            self.values[name] = amqptype(value)
+            if value is None:
+                value = amqptype()
+            else:
+                value = amqptype(value)
+            self.values[name] = value
 
     @classmethod
     def from_bytestream(cls, stream):
@@ -31,24 +35,34 @@ class Method:
         method_id = types.UnsignedShort.from_bytestream(stream)
         method_cls = METHODS[(class_id, method_id)]
 
-        values = []
+        kwargs = {}
+        bit_names = []
         number_of_bits = 0
-        for amqptype in method_cls.field_info.values():
+        for name, amqptype in method_cls.field_info:
+            if name == 'global':
+                name = 'global_'
+
             if amqptype is types.Bool:
                 number_of_bits += 1
+                bit_names.append(name)
                 continue
             elif number_of_bits:
                 # We have some bools but this next field is not a bool
                 bits = types.Bool.many_from_bytestream(stream, number_of_bits)
-                values.extend(bits)
+                for bit_name, bit in zip(bit_names, bits):
+                    kwargs[bit_name] = bit
                 number_of_bits = 0
+                bit_names.clear()
 
-            values.append(amqptype.from_bytestream(stream))
+            kwargs[name] = amqptype.from_bytestream(stream)
 
         if number_of_bits:
             bits = types.Bool.many_from_bytestream(stream, number_of_bits)
-            values.extend(bits)
-        return method_cls(*values)
+            for name, bit in zip(bit_names, bits):
+                kwargs[name] = bit
+            number_of_bits = 0
+            bit_names.clear()
+        return method_cls(**kwargs)
 
     def to_bytestream(self, stream):
         # Packing method type, spec 2.3.5.1 Method Frames
@@ -69,7 +83,7 @@ class Method:
 
     def __getattr__(self, name):
         try:
-            return self.fields[name]
+            return self.values[name]
         except KeyError:
             raise AttributeError('{} object has no attribute {}'.format(
                 type(self).__name__, name
@@ -78,6 +92,11 @@ class Method:
     def __eq__(self, other):
         return (self.method_type == other.method_type and
                 self.values == other.values)
+
+    def __repr__(self):
+        return '<{}: {}>'.format(self.__class__.__qualname__,
+                                 ' '.join('{}={}'.format(k, v)
+                                          for k, v in self.values.items()))
 
 
 {% for name, doc, type, fields, synchronous in methods %}
@@ -99,17 +118,23 @@ class {{ name }}(Method):
     synchronous = {{ synchronous }}
 {% if fields %}
 
-    def __init__(self,
+    def __init__(self, *,
 {% for name in fields.keys() %}
+{% set name = name if name != 'global' else 'global_' %}
+{% set default_value = '=None' if name.startswith('reserved') else '' %}
 {% if not loop.last %}
-                 {{ name if name != 'global' else 'global_' }},
+                 {{ name }}{{ default_value }},
 {% else %}
-                 {{ name if name != 'global' else 'global_' }}):
+                 {{ name }}{{ default_value }}):
 {% endif %}
 {% endfor %}
         super().__init__(
-{% for name in fields.keys() %}
+{% for name, type in fields.items() %}
+{% if not name.startswith('reserved') %}
              {{ name if name != 'global' else 'global_' }},
+{% else %}
+             types.{{ type }}(),
+{% endif %}
 {% endfor %}
         )
 {% endif %}
