@@ -10,9 +10,11 @@ import io
 
 from . import basic
 from . import types
-from . import errors
 from . import methods
 from . import constants
+
+__all__ = ['Frame', 'MethodFrame', 'ContentHeaderFrame',
+           'ContentBodyFrame', 'HeartbeatFrame', 'ProtocolHeaderFrame']
 
 
 class Frame:
@@ -107,17 +109,17 @@ class ProtocolHeaderFrame:
     def to_bytestream(self, stream: io.BytesIO):
         # Spec 4.2.2 Protocol Header
         stream.write(b'AMQP\x00')
-        stream.write(self.protocol_major)
-        stream.write(self.protocol_minor)
-        stream.write(self.protocol_revision)
+        types.UnsignedByte(self.protocol_major).to_bytestream(stream)
+        types.UnsignedByte(self.protocol_minor).to_bytestream(stream)
+        types.UnsignedByte(self.protocol_revision).to_bytestream(stream)
 
     @classmethod
     def from_bytestream(cls, stream: io.BytesIO):
         protocol = stream.read(5)
         assert protocol == b'AMQP\x00'
-        protocol_major = stream.read(1)
-        protocol_minor = stream.read(1)
-        protocol_revision = stream.read(1)
+        protocol_major = types.UnsignedByte.from_bytestream(stream)
+        protocol_minor = types.UnsignedByte.from_bytestream(stream)
+        protocol_revision = types.UnsignedByte.from_bytestream(stream)
         return cls(protocol_major, protocol_minor, protocol_revision)
 
 
