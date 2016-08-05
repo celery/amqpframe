@@ -119,11 +119,13 @@ if __name__ == '__main__':
 
     env = jinja2.Environment(trim_blocks=True, lstrip_blocks=True)
 
+    gendate = datetime.utcnow().strftime('%Y-%m-%d')
+
     with open(methods_template_source) as f:
         template = env.from_string(f.read())
     rendered = template.render(
-        gendate=datetime.utcnow(),
-        gensource = spec,
+        gendate=gendate,
+        gensource=spec,
         methods=methods)
     with open(methods_file, 'w') as f:
         f.write(rendered)
@@ -131,8 +133,8 @@ if __name__ == '__main__':
     with open(errors_template_source) as f:
         template = env.from_string(f.read())
     rendered = template.render(
-        gendate=datetime.utcnow(),
-        gensource = spec,
+        gendate=gendate,
+        gensource=spec,
         error_classes=error_classes)
     with open(errors_file, 'w') as f:
         f.write(rendered)
