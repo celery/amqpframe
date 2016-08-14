@@ -4,8 +4,6 @@ import decimal
 import datetime
 import itertools
 
-from . import errors
-
 
 def grouper(iterable, n, fillvalue=None):
     """Collect data into fixed-length chunks or blocks"""
@@ -24,6 +22,20 @@ class BaseType:
     """
 
     TABLE_LABEL = None
+    _STRUCT_FMT = None
+    _STRUCT_SIZE = None
+
+    def __init__(self, value):
+        if isinstance(value, BaseType):
+            value = value.value
+        self.value = self.validate(value)
+
+    @classmethod
+    def validate(cls, value):
+        raise NotImplementedError
+
+    def to_python(self):
+        return self.value
 
     def to_bytestream(self, stream: io.BytesIO):
          stream.write(self.pack())
@@ -46,15 +58,15 @@ class BaseType:
         return cls(x)
 
     def pack(self):
-        raise NotImplementedError
+        return struct.pack('!' + self._STRUCT_FMT, self.value)
 
     @classmethod
     def unpack(cls, stream: io.BytesIO):
-        raise NotImplementedError
+        raw = stream.read(cls._STRUCT_SIZE)
+        return struct.unpack('!' + cls._STRUCT_FMT, raw)[0], cls._STRUCT_SIZE
 
     def __repr__(self):
-        orig = super().__repr__()
-        return '<{}: {} at {}>'.format(self.__class__.__name__, orig, id(self))
+        return '<{}: {}>'.format(self.__class__.__name__, self.value)
 
 
 def _bytes2bits(byte, reminder):
@@ -72,30 +84,18 @@ class Bool(BaseType):
     TABLE_LABEL = b't'
 
     def __init__(self, value=False):
-        if isinstance(value, Bool):
-            value = value.value
-        self.value = value
-
-    def __eq__(self, other):
-        if isinstance(other, type(self.value)):
-            return self.value == other
-        try:
-            return self.value == other.value
-        except AttributeError:
-            return NotImplemented
-
-    def __bool__(self):
-        return self.value
+        super().__init__(value)
 
     @classmethod
-    def from_bytestream(cls, stream: io.BytesIO):
-        try:
-            x, _ = cls.unpack(stream)
-        except struct.error:
-            raise errors.SyntaxError(
-                'Unable to unpack {} from the stream'.format(cls.__name__)
-            )
-        return cls(x)
+    def validate(cls, value):
+        return bool(value)
+
+    # pack and unpack used when packing/unpacking happens within tables/arrays
+    # pack_many/many_to_bytestream and unpack_many/many_from_bytestream
+    # used when packing/unpacking happens elsewhere
+    # damn you AMQP creators who decided to save a couple of bytes ;(
+    def pack(self):
+        return struct.pack('!?', self.value)
 
     @classmethod
     def unpack(cls, stream):
@@ -125,170 +125,263 @@ class Bool(BaseType):
         return cls.unpack_many(stream, number_of_bits)
 
     def __repr__(self):
-        return '<{}: {} at {}>'.format(self.__class__.__name__, bool(self), id(self))
+        return '<{}: {} at {}>'.format(
+            self.__class__.__name__, bool(self), id(self)
+        )
 
 Bit = Bool
 
 
-class _Bounded:
-    # MIN and MAX should be defined
-    MIN = None
-    MAX = None
-
-    def __new__(cls, value=0):
-        assert cls.MIN <= value <= cls.MAX
-        return super().__new__(cls, value)
-
-
-class SignedByte(BaseType, _Bounded, int):
+class SignedByte(BaseType):
     TABLE_LABEL = b'b'
 
     MIN = -(1 << 7)
     MAX = (1 << 7) - 1
 
-    def pack(self):
-        return struct.pack('!b', self)
+    _STRUCT_FMT = 'b'
+    _STRUCT_SIZE = 1
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!b', stream.read(1))[0], 1
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 
-class UnsignedByte(BaseType, _Bounded, int):
+class UnsignedByte(BaseType):
     TABLE_LABEL = b'B'
 
     MIN = 0
     MAX = (1 << 8) - 1
 
-    def pack(self):
-        return struct.pack('!B', self)
+    _STRUCT_FMT = 'B'
+    _STRUCT_SIZE = 1
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!B', stream.read(1))[0], 1
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 Octet = UnsignedByte
 
 
-class SignedShort(BaseType, _Bounded, int):
+class SignedShort(BaseType):
     TABLE_LABEL = b's'
 
     MIN = -(1 << 15)
     MAX = (1 << 15) - 1
 
-    def pack(self):
-        return struct.pack('!h', self)
+    _STRUCT_FMT = 'h'
+    _STRUCT_SIZE = 2
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!h', stream.read(2))[0], 2
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 
-class UnsignedShort(BaseType, _Bounded, int):
+class UnsignedShort(BaseType):
     TABLE_LABEL = b'u'
 
     MIN = 0
     MAX = (1 << 16) - 1
 
-    def pack(self):
-        return struct.pack('!H', self)
+    _STRUCT_FMT = 'H'
+    _STRUCT_SIZE = 2
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!H', stream.read(2))[0], 2
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 Short = UnsignedShort
 
 
-class SignedLong(BaseType, _Bounded, int):
+class SignedLong(BaseType):
     TABLE_LABEL = b'I'
 
     MIN = -(1 << 31)
     MAX = (1 << 31) - 1
 
-    def pack(self):
-        return struct.pack('!l', self)
+    _STRUCT_FMT = 'l'
+    _STRUCT_SIZE = 4
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!l', stream.read(4))[0], 4
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 
-class UnsignedLong(BaseType, _Bounded, int):
+class UnsignedLong(BaseType):
     TABLE_LABEL = b'i'
 
     MIN = 0
     MAX = (1 << 32) - 1
 
-    def pack(self):
-        return struct.pack('!L', self)
+    _STRUCT_FMT = 'L'
+    _STRUCT_SIZE = 4
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!L', stream.read(4))[0], 4
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 Long = UnsignedLong
 
 
-class SignedLongLong(BaseType, _Bounded, int):
+class SignedLongLong(BaseType):
     TABLE_LABEL = b'l'
 
     MIN = -(1 << 63)
     MAX = (1 << 63) - 1
 
-    def pack(self):
-        return struct.pack('!q', self)
+    _STRUCT_FMT = 'q'
+    _STRUCT_SIZE = 8
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!q', stream.read(8))[0], 8
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 
-class UnsignedLongLong(BaseType, _Bounded, int):
+class UnsignedLongLong(BaseType):
     # Missing in rabbitmq/qpid
-    # Or not?
-    TABLE_LABEL = b'L'
+    TABLE_LABEL = None
 
     MIN = 0
     MAX = (1 << 64) - 1
 
-    def pack(self):
-        return struct.pack('!Q', self)
+    _STRUCT_FMT = 'Q'
+    _STRUCT_SIZE = 8
+
+    def __init__(self, value=0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!Q', stream.read(8))[0], 8
+    def validate(cls, value):
+        value = int(value)
+        if not (cls.MIN <= value <= cls.MAX):
+            raise ValueError('value {} must be in range: {}, {}'.format(
+                value, cls.MIN, cls.MAX
+            ))
+        return value
 
 Longlong = UnsignedLongLong
 
 
-class Float(BaseType, float):
+class Float(BaseType):
     TABLE_LABEL = b'f'
 
-    def pack(self):
-        return struct.pack('!f', self)
+    _STRUCT_FMT = 'f'
+    _STRUCT_SIZE = 4
+
+    def __init__(self, value=0.0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!f', stream.read(4))[0], 4
+    def validate(cls, value):
+        value = float(value)
+        try:
+            return struct.unpack('!f', struct.pack('!f', value))[0]
+        except OverflowError:
+            raise ValueError
 
 
-class Double(BaseType, float):
+class Double(BaseType):
     TABLE_LABEL = b'd'
 
-    def pack(self):
-        return struct.pack('!d', self)
+    _STRUCT_FMT = 'd'
+    _STRUCT_SIZE = 8
+
+    def __init__(self, value=0.0):
+        super().__init__(value)
 
     @classmethod
-    def unpack(cls, stream: io.BytesIO):
-        return struct.unpack('!d', stream.read(8))[0], 8
+    def validate(cls, value):
+        value = float(value)
+        try:
+            return struct.unpack('!d', struct.pack('!d', value))[0]
+        except OverflowError:
+            raise ValueError
 
 
-class Decimal(BaseType, decimal.Decimal):
+class Decimal(BaseType):
     TABLE_LABEL = b'D'
 
+    MIN_EXP = UnsignedByte.MIN
+    MAX_EXP = UnsignedByte.MAX
+    MIN_VALUE = UnsignedLong.MIN
+    MAX_VALUE = UnsignedLong.MAX
+
+    def __init__(self, value=None):
+        if value is None:
+            value = Decimal(0)
+        super().__init__(value)
+
+    @classmethod
+    def validate(cls, value):
+        if not isinstance(value, decimal.Decimal):
+            raise ValueError('value must be of type `decimal.Decimal`, '
+                             'got {} instead'.format(type(value)))
+        sign, digits, exponent = value.as_tuple()
+        if (sign == 0 and
+                exponent != 'F' and  # Decimal('Infinity')
+                exponent != 'n' and  # Decimal('NaN')
+                cls.MIN_EXP <= exponent <= cls.MAX_EXP and
+                cls.MIN_VALUE <= value <= cls.MAX_VALUE):
+            return value
+        raise ValueError('bad decimal value: {!r}'.format(value))
+
     def pack(self):
-        sign, digits, exponent = self.as_tuple()
+        sign, digits, exponent = self.value.as_tuple()
         v = 0
         for d in digits:
             v = v * 10 + d
@@ -303,31 +396,40 @@ class Decimal(BaseType, decimal.Decimal):
         total += consumed
         v, consumed = UnsignedLong.unpack(stream)
         total += consumed
-        return cls(v) / cls(10 ** exponent), total
+        value = decimal.Decimal(v) / decimal.Decimal(10 ** exponent)
+        return cls(value), total
 
 
-class ShortStr(BaseType, str):
+class ShortStr(BaseType):
     # Missing in rabbitmq/qpid
     TABLE_LABEL = None
     MAX = UnsignedByte.MAX
 
-    def __new__(cls, value: str = ''):
-        if isinstance(value, str):
-            buffer = value.encode('utf-8')
-        else:
-            buffer = value
-        assert len(buffer) <= cls.MAX
-        instance = super().__new__(cls, value)
-        instance._buffer = buffer
-        return instance
+    def __init__(self, value=b''):
+        super().__init__(value)
+
+    @classmethod
+    def validate(cls, value):
+        try:
+            value.decode('utf-8')
+        except UnicodeDecodeError:
+            raise ValueError('value must be utf-8 encoded bytes')
+        if len(value) > cls.MAX:
+            raise ValueError(
+                'value {!r} is too long for ShortStr'.format(value)
+            )
+        return value
+
+    def to_python(self):
+        return self.value.decode('utf-8')
 
     def pack(self):
-        return UnsignedByte(len(self._buffer)).pack() + self._buffer
+        return UnsignedByte(len(self.value)).pack() + self.value
 
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         str_len, consumed = UnsignedByte.unpack(stream)
-        value = stream.read(str_len).decode('utf-8')
+        value = stream.read(str_len)
         return cls(value), consumed + str_len
 
 Shortstr = ShortStr
@@ -337,25 +439,30 @@ class LongStr(BaseType, str):
     TABLE_LABEL = b'S'
     MAX = UnsignedLong.MAX
 
-    def __new__(cls, value: str = ''):
-        if isinstance(value, str):
-            buffer = value.encode('utf-8')
-        else:
-            buffer = value
-        assert len(buffer) <= cls.MAX
-        instance = super().__new__(cls, value)
-        instance._buffer = buffer
-        return instance
+    def __init__(self, value=b''):
+        super().__init__(value)
+
+    @classmethod
+    def validate(cls, value):
+        try:
+            value.decode('utf-8')
+        except UnicodeDecodeError:
+            raise ValueError('value must be utf-8 encoded bytes')
+        if len(value) > cls.MAX:
+            raise ValueError('value {!r} is too long for LongStr'.format(value))
+        return value
+
+    def to_python(self):
+        return self.value.decode('utf-8')
 
     def pack(self):
-        return UnsignedLong(len(self._buffer)).pack() + self._buffer
+        return UnsignedLong(len(self.value)).pack() + self.value
 
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         str_len, consumed = UnsignedLong.unpack(stream)
         value = stream.read(str_len)
         assert len(value) == str_len
-        value = value.decode('utf-8')
         return cls(value), consumed + str_len
 
 Longstr = LongStr
@@ -365,7 +472,15 @@ class Void(BaseType):
     TABLE_LABEL = b'V'
 
     def __init__(self, value=None):
-        pass
+        self.value = self.validate(value)
+
+    @classmethod
+    def validate(cls, value):
+        if value is not None:
+            raise TypeError(
+                'void value must be None, got {!r} instead'.format(value)
+            )
+        return value
 
     def pack(self):
         return b''  # Nothing to return - it's Void!
@@ -375,40 +490,58 @@ class Void(BaseType):
         return None, 0
 
 
-class ByteArray(BaseType, bytes):
+class ByteArray(BaseType):
     # According to https://github.com/alanxz/rabbitmq-c/blob/master/librabbitmq/amqp_table.c#L256-L267
     # bytearrays behave like `LongStr`ings but have different semantics.
 
     TABLE_LABEL = b'x'
+    MAX = UnsignedLong.MAX
+
+    def __init__(self, value=b''):
+        super().__init__(value)
+
+    @classmethod
+    def validate(cls, value):
+        if not isinstance(value, bytes):
+            raise ValueError(
+                'ByteArray value must be bytes, got {!r} instead'.format(value)
+            )
+        if len(value) > cls.MAX:
+            raise ValueError('value {!r} is too long for ByteArray'.format(
+                value
+            ))
+        return value
 
     def pack(self):
-        return UnsignedLong(len(self)).pack() + self
+        return UnsignedLong(len(self.value)).pack() + self.value
 
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         str_len, consumed = UnsignedLong.unpack(stream)
         value = stream.read(str_len)
         assert len(value) == str_len
-        return value, consumed + str_len
+        return cls(value), consumed + str_len
 
 
-class Timestamp(BaseType, datetime.datetime):
+class Timestamp(BaseType):
     TABLE_LABEL = b'T'
 
-    def __new__(cls, value: datetime.datetime = None):
+    def __init__(self, value=None):
         if value is None:
             value = datetime.datetime.utcnow()
-        return super().__new__(
-            cls,
-            value.year, value.month, value.day,
-            value.hour, value.minute, value.second
-        )
+        super().__init__(value)
 
-    def __eq__(self, other):
-        return abs(self - other) < datetime.timedelta(milliseconds=1)
+    @classmethod
+    def validate(cls, value):
+        if not isinstance(value, datetime.datetime):
+            raise ValueError('value must be of type `datetime.datetime`, '
+                             'got {} instead'.format(type(value)))
+        if value.year < 1970:
+            raise ValueError('timestamps must be after 1970')
+        return value
 
     def pack(self):
-        stamp = int(self.timestamp())
+        stamp = int(self.value.timestamp())
         return UnsignedLongLong(stamp).pack()
 
     @classmethod
@@ -418,12 +551,31 @@ class Timestamp(BaseType, datetime.datetime):
         return cls(date), consumed
 
 
-class Table(BaseType, dict):
+class Table(BaseType):
     TABLE_LABEL = b'F'
+
+    def __init__(self, value=None):
+        if value is None:
+            value = {}
+        super().__init__(value)
+
+    @classmethod
+    def validate(cls, value):
+        validated = {}
+        for key, value in value.items():
+            if not isinstance(key, ShortStr):
+                key = ShortStr(key)
+            if not isinstance(value, BaseType):
+                value = _py_type_to_amqp_type(value)
+            validated[key] = value
+        return validated
+
+    def to_python(self):
+        return {k.to_python(): v.to_python() for k, v in self.value.items()}
 
     def pack(self):
         stream = io.BytesIO()
-        for key, value in self.items():
+        for key, value in self.value.items():
             key.to_bytestream(stream)
             stream.write(value.TABLE_LABEL)
             value.to_bytestream(stream)
@@ -433,10 +585,10 @@ class Table(BaseType, dict):
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         result = {}
-        table_len, _ = UnsignedLong.unpack(stream)
-        consumed = 0
+        table_len, initial = UnsignedLong.unpack(stream)
+        consumed = initial
 
-        while consumed < table_len:
+        while consumed < initial + table_len:
             key, x = ShortStr.unpack(stream)
             consumed += x
 
@@ -451,12 +603,29 @@ class Table(BaseType, dict):
         return result, consumed
 
 
-class Array(BaseType, list):
+class Array(BaseType):
     TABLE_LABEL = b'A'
+
+    def __init__(self, value=None):
+        if value is None:
+            value = []
+        super().__init__(value)
+
+    @classmethod
+    def validate(cls, value):
+        validated = []
+        for item in value:
+            if not isinstance(item, BaseType):
+                item = _py_type_to_amqp_type(item)
+            validated.append(item)
+        return validated
+
+    def to_python(self):
+        return [v.to_python() for v in self.value]
 
     def pack(self):
         stream = io.BytesIO()
-        for value in self:
+        for value in self.value:
             stream.write(value.TABLE_LABEL)
             value.to_bytestream(stream)
         buffer = stream.getvalue()
@@ -478,6 +647,53 @@ class Array(BaseType, list):
 
             result.append(amqptype(value))
         return result, consumed
+
+
+def _py_type_to_amqp_type(value):
+    if isinstance(value, bool):
+        value = Bool(value)
+    elif isinstance(value, (str, bytes)):
+        if isinstance(value, bytes):
+            try:
+                # If we can decode UTF-8, it's LongStr
+                # No ShortStr support in rabbitmq/qpid
+                value.decode('utf-8')
+                cls = LongStr
+            except UnicodeDecodeError:
+                # If we can't decode UTF-8, it's ByteArray
+                cls = ByteArray
+        else:
+            cls = LongStr
+        value = cls(value)
+    elif isinstance(value, float):
+        value = Float(value)
+    elif isinstance(value, int):
+        if value < 0:
+            classes = SignedByte, SignedShort, SignedLong, SignedLongLong
+        else:
+            classes = UnsignedByte, UnsignedShort, UnsignedLong
+        last_error = None
+        for cls in classes:
+            try:
+                value = cls(value)
+                break
+            except ValueError as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+    elif isinstance(value, decimal.Decimal):
+        value = Decimal(value)
+    elif isinstance(value, datetime.datetime):
+        value = Timestamp(value)
+    elif isinstance(value, dict):
+        value = Table(value)
+    elif isinstance(value, (list, tuple)):
+        value = Array(value)
+    elif value is None:
+        value = Void()
+    else:
+        raise ValueError()
+    return value
 
 
 TABLE_LABEL_TO_CLS = {cls.TABLE_LABEL: cls

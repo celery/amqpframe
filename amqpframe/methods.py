@@ -8,10 +8,36 @@ This file was generated 2016-08-05 from
 /codegen/amqp0-9-1.extended.xml.
 
 """
-import datadiff
+import io
+import operator
 import collections
 
 from . import types
+
+
+def _recursive_equals(first, second):
+    first_type = type(first)
+    second_type = type(second)
+    valid_iterable_types = collections.OrderedDict, types.Array, types.Table
+    if (first_type not in valid_iterable_types and
+            second_type not in valid_iterable_types):
+        return first == second
+
+    if first_type != second_type:
+        return False
+    if len(first) != len(second):
+        return False
+
+    if first_type is types.Array:
+        for v1, v2 in zip(first, second):
+            if not _recursive_equals(v1, v2):
+                return False
+
+    # first_type is types.Tablw
+    return _recursive_equals(
+        sorted(first.items(), key=operator.itemgetter(0)),
+        sorted(first.items(), key=operator.itemgetter(0)),
+    )
 
 
 class Method:
@@ -31,8 +57,8 @@ class Method:
     @classmethod
     def from_bytestream(cls, stream):
         # Unpacking method type, spec 2.3.5.1 Method Frames
-        class_id = types.UnsignedShort.from_bytestream(stream)
-        method_id = types.UnsignedShort.from_bytestream(stream)
+        class_id = types.UnsignedShort.from_bytestream(stream).to_python()
+        method_id = types.UnsignedShort.from_bytestream(stream).to_python()
         method_cls = METHODS[(class_id, method_id)]
 
         kwargs = {}
@@ -64,12 +90,12 @@ class Method:
             bit_names.clear()
         return method_cls(**kwargs)
 
-    def to_bytestream(self, stream):
+    def to_bytestream(self, stream: io.BytesIO):
         # Packing method type, spec 2.3.5.1 Method Frames
         types.UnsignedShort(self.method_type[0]).to_bytestream(stream)
         types.UnsignedShort(self.method_type[1]).to_bytestream(stream)
         bits = []
-        for value in self.values.values():
+        for name, value in self.values.items():
             if isinstance(value, types.Bool):
                 bits.append(value.value)
             else:
@@ -91,7 +117,7 @@ class Method:
 
     def __eq__(self, other):
         return (self.method_type == other.method_type and
-                self.values == other.values)
+                _recursive_equals(self.values, other.values))
 
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__qualname__,

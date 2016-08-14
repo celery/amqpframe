@@ -1,4 +1,5 @@
 import io
+import functools
 
 import amqpframe
 import amqpframe.types as at
@@ -9,65 +10,52 @@ import hypothesis as h
 import hypothesis.strategies as hs
 import hypothesis.extra.datetime as hed
 
-
-bools = hs.booleans().map(at.Bool)
-signed_bytes = hs.integers(at.SignedByte.MIN,
-                           at.SignedByte.MAX).map(at.SignedByte)
-unsigned_bytes = hs.integers(at.UnsignedByte.MIN,
-                             at.UnsignedByte.MAX).map(at.UnsignedByte)
-signed_shorts = hs.integers(at.SignedShort.MIN,
-                            at.SignedShort.MAX).map(at.SignedShort)
-unsigned_shorts = hs.integers(at.UnsignedShort.MIN,
-                              at.UnsignedShort.MAX).map(at.UnsignedShort)
-signed_longs = hs.integers(at.SignedLong.MIN,
-                           at.SignedLong.MAX).map(at.SignedLong)
-unsigned_longs = hs.integers(at.UnsignedLong.MIN,
-                             at.UnsignedLong.MAX).map(at.UnsignedLong)
-signed_long_longs = hs.integers(at.SignedLongLong.MIN,
-                                at.SignedLongLong.MAX).map(at.SignedLongLong)
-unsigned_long_longs = hs.integers(at.UnsignedLongLong.MIN,
-                                  at.UnsignedLongLong.MAX).map(at.UnsignedLongLong)
-floats = hs.floats().map(at.Float)
-# XXX what to use here?
-doubles = hs.floats().map(at.Double)
+utf8encode = functools.partial(str.encode, encoding='utf-8')
 
 
-def _good_decimal(x):
-    sign, digits, exponent = x.as_tuple()
-    return (sign == 1 and
-            at.UnsignedByte.MIN <= exponent <= at.UnsignedByte.MAX and
-            at.UnsignedLong.MIN <= value <= at.UnsignedLong.MAX)
+def validate(cls):
+    def inner(value):
+        try:
+            cls.validate(value)
+            return True
+        except ValueError:
+            return False
+    return inner
 
-decimals = hs.decimals().filter(_good_decimal).map(at.Decimal)
-short_strs = hs.text(max_size=at.ShortStr.MAX).\
-             filter(lambda x: len(x.encode('utf-8')) <= at.ShortStr.MAX).\
-             map(at.ShortStr)
-long_strs = hs.text(max_size=at.LongStr.MAX). \
-            filter(lambda x: len(x.encode('utf-8')) <= at.LongStr.MAX). \
-            map(at.LongStr)
+
+def st(strategy, cls):
+    return strategy.filter(validate(cls))
+
+bools = hs.booleans()
+signed_bytes = st(hs.integers(), at.SignedByte)
+unsigned_bytes = st(hs.integers(), at.UnsignedByte)
+signed_shorts = st(hs.integers(), at.SignedShort)
+unsigned_shorts = st(hs.integers(), at.UnsignedShort)
+signed_longs = st(hs.integers(), at.SignedLong)
+unsigned_longs = st(hs.integers(), at.UnsignedLong)
+signed_long_longs = st(hs.integers(), at.SignedLongLong)
+unsigned_long_longs = st(hs.integers(), at.UnsignedLongLong)
+floats = st(hs.floats(), at.Float)
+doubles = st(hs.floats(), at.Double)
+decimals = st(hs.decimals(), at.Decimal)
+short_strs = st(hs.text().map(utf8encode), at.ShortStr)
+long_strs = st(hs.text().map(utf8encode), at.LongStr)
 voids = hs.just(at.Void())
-bytearrays = hs.binary().map(at.ByteArray)
-timestamps = hed.datetimes(min_year=1970).map(at.Timestamp)
+bytearrays = st(hs.binary(), at.ByteArray)
+timestamps = st(hed.datetimes(), at.Timestamp)
 
 types = (bools | signed_bytes | unsigned_bytes |
          signed_shorts | unsigned_shorts |
          signed_longs | unsigned_longs |
-         signed_long_longs | unsigned_long_longs |
-         floats | doubles | decimals | long_strs | voids |
+         signed_long_longs | floats | doubles | decimals | long_strs | voids |
          bytearrays | timestamps)
 
 tables = hs.dictionaries(short_strs, hs.recursive(
-    types,
-    lambda c: c |
-              hs.dictionaries(short_strs, c).map(at.Table) |
-              hs.lists(c).map(at.Array)
-)).map(at.Table)
+    types, lambda c: c | hs.dictionaries(short_strs, c) | hs.lists(c)
+))
 
 arrays = hs.lists(hs.recursive(
-    types,
-    lambda c: c |
-              hs.dictionaries(short_strs, c).map(at.Table) |
-              hs.lists(c).map(at.Array)
+    types, lambda c: c | hs.dictionaries(short_strs, c) | hs.lists(c)
 ))
 
 
@@ -79,7 +67,7 @@ type_to_strategy = {
     at.UnsignedShort: unsigned_shorts,
     at.SignedLong: unsigned_longs,
     at.UnsignedLong: unsigned_longs,
-    at.SignedLongLong: unsigned_long_longs,
+    at.SignedLongLong: signed_long_longs,
     at.UnsignedLongLong: unsigned_long_longs,
     at.Shortstr: short_strs,
     at.Longstr:  long_strs,
@@ -100,9 +88,9 @@ class TestHeaderFrame:
     def test_from_bytestream(self):
         stream = io.BytesIO(self.DATA)
         frame = amqpframe.ProtocolHeaderFrame.from_bytestream(stream)
-        assert frame.protocol_major == 0
-        assert frame.protocol_minor == 9
-        assert frame.protocol_revision == 1
+        assert frame.protocol_major.to_python() == 0
+        assert frame.protocol_minor.to_python() == 9
+        assert frame.protocol_revision.to_python() == 1
 
     def test_to_bytestream(self):
         frame = amqpframe.ProtocolHeaderFrame(0, 9, 1)
@@ -111,24 +99,27 @@ class TestHeaderFrame:
         assert stream.getvalue() == self.DATA
 
 
+@hs.composite
+def methods(draw, method_cls):
+    kwargs = {}
+    for name, amqptype in method_cls.field_info:
+        if name.startswith('reserved'):
+            continue
+        if name == 'global':
+            name = 'global_'
+
+        kwargs[name] = draw(type_to_strategy[amqptype])
+    return method_cls(**kwargs)
+
+
 @pytest.mark.parametrize('method_cls', am.Method.__subclasses__())
 def test_methods(method_cls):
 
-    @hs.composite
-    def methods(draw):
-        kwargs = {}
-        for name, amqptype in method_cls.field_info:
-            if name.startswith('reserved'):
-                continue
-            if name == 'global':
-                name = 'global_'
-
-            kwargs[name] = draw(type_to_strategy[amqptype])
-        return method_cls(**kwargs)
-
-    @h.given(methods())
+    @h.given(hs.data())
     @h.settings(perform_health_check=False)
-    def test_method(method):
+    def test_method(data):
+        method = data.draw(methods(method_cls))
+
         stream = io.BytesIO()
         method.to_bytestream(stream)
         raw = stream.getvalue()
@@ -138,16 +129,3 @@ def test_methods(method_cls):
 
         assert method == unpacked
     return test_method()
-
-
-def test_q():
-    m = am.QueueDeclare(queue=None, passive=at.Bool(False), durable=at.Bool(False),
-                        exclusive=at.Bool(False), auto_delete=at.Bool(False),
-                        no_wait=at.Bool(False), arguments=at.Table(
-            {at.ShortStr():  at.Table({})}
-        ))
-    b = io.BytesIO()
-    m.to_bytestream(b)
-    b.seek(0)
-    new = am.Method.from_bytestream(b)
-    assert new == m
