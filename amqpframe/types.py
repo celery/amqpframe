@@ -676,6 +676,7 @@ def _py_type_to_amqp_type(value):
         for cls in classes:
             try:
                 value = cls(value)
+                last_error = None
                 break
             except ValueError as exc:
                 last_error = exc
