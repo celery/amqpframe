@@ -666,7 +666,10 @@ def _py_type_to_amqp_type(value):
             cls = LongStr
         value = cls(value)
     elif isinstance(value, float):
-        value = Float(value)
+        try:
+            value = Float(value)
+        except ValueError:
+            value = Double(value)
     elif isinstance(value, int):
         if value < 0:
             classes = SignedByte, SignedShort, SignedLong, SignedLongLong
