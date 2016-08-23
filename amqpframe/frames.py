@@ -26,7 +26,7 @@ class Frame:
         self.payload = payload
 
     @classmethod
-    def from_bytestream(cls, stream: io.BytesIO):
+    def from_bytestream(cls, stream: io.BytesIO, read_chunk_size=None):
         # Spec 2.3.5 Frame Details
         frame_type = types.UnsignedByte.from_bytestream(stream)
         channel_id = types.UnsignedShort.from_bytestream(stream)
@@ -36,8 +36,11 @@ class Frame:
         # Fail fast if `end` is not what we expect
         assert end == constants.FRAME_END
 
-        payload_stream = io.BytesIO(payload_bytes)
-        return FRAMES[frame_type], channel_id, payload_stream
+        payload_stream = io.BytesIO(payload_bytes.value)
+        frame_cls = FRAMES[frame_type]
+        return frame_cls.from_payload_bytestream(
+            payload_stream, channel_id, read_chunk_size=read_chunk_size
+        )
 
     def to_bytestream(self, stream: io.BytesIO):
         # Spec 2.3.5 Frame Details
@@ -46,18 +49,14 @@ class Frame:
         self.payload.to_bytestream(stream)
         types.UnsignedByte(constants.FRAME_END).to_bytestream(stream)
 
-    def __eq__(self, other):
-        return (self.frame_type == other.frame_type and
-                self.channel_id == other.channel_id and
-                self.payload == other.payload)
-
 
 class MethodFrame(Frame):
     frame_type = constants.FRAME_METHOD
 
     @classmethod
-    def from_bytestream(cls, stream: io.BytesIO, channel_id):
-        payload = methods.Method.from_bytestream(stream)
+    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
+                                read_chunk_size=None):
+        payload = methods.Method.from_bytestream(payload_stream)
         return cls(channel_id, payload)
 
 
@@ -65,7 +64,8 @@ class ContentHeaderFrame(Frame):
     frame_type = constants.FRAME_HEADER
 
     @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id):
+    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
+                                read_chunk_size=None):
         payload = ContentHeaderPayload.from_bytestream(payload_stream)
         return cls(channel_id, payload)
 
@@ -75,9 +75,9 @@ class ContentBodyFrame(Frame):
 
     @classmethod
     def from_payload_bytestream(cls, payload_stream: io.BytesIO,
-                                channel_id, body_chunk_size):
+                                channel_id, read_chunk_size):
         payload = ContentBodyPayload.from_bytestream(payload_stream,
-                                                     body_chunk_size)
+                                                     read_chunk_size)
         return cls(channel_id, payload)
 
 
@@ -85,21 +85,42 @@ class HeartbeatFrame(Frame):
     frame_type = constants.FRAME_HEARTBEAT
     channel_id = 0
 
-    def __init__(self, channel_id, payload):
+    def __init__(self, channel_id, payload=None):
         assert channel_id == self.channel_id
+        if payload is None:
+            payload = HeartbeatPayload()
         super().__init__(channel_id, payload)
 
     @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id):
+    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
+                                read_chunk_size=None):
         payload = HeartbeatPayload()
         return cls(channel_id, payload)
 
 
-class ProtocolHeaderFrame:
+class ProtocolHeaderFrame(Frame):
     """This is actually not a frame - just bytes, but it's quite handy
     to pretend it is a frame to unify `input bytes -> frames -> output bytes`
     sequence.
     """
+
+    @classmethod
+    def from_bytestream(cls, stream: io.BytesIO, read_chunk_size=None):
+        return cls.from_payload_bytestream(stream, None, read_chunk_size)
+
+    def to_bytestream(self, stream: io.BytesIO):
+        self.payload.to_bytestream(stream)
+
+    @classmethod
+    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
+                                read_chunk_size=None):
+        payload = ProtocolHeaderPayload.from_bytestream(payload_stream)
+        return cls(channel_id, payload)
+
+
+class ProtocolHeaderPayload:
+
+    PREFIX = b'AMQP\x00'
 
     def __init__(self, protocol_major=0, protocol_minor=9, protocol_revision=1):
         self.protocol_major = protocol_major
@@ -108,7 +129,7 @@ class ProtocolHeaderFrame:
 
     def to_bytestream(self, stream: io.BytesIO):
         # Spec 4.2.2 Protocol Header
-        stream.write(b'AMQP\x00')
+        stream.write(self.PREFIX)
         types.UnsignedByte(self.protocol_major).to_bytestream(stream)
         types.UnsignedByte(self.protocol_minor).to_bytestream(stream)
         types.UnsignedByte(self.protocol_revision).to_bytestream(stream)
@@ -198,7 +219,7 @@ class ContentBodyPayload:
 class HeartbeatPayload:
 
     def to_bytestream(self, stream):
-        stream.write(0)
+        types.ByteArray(b'').to_bytestream(stream)
 
 
 FRAMES = {

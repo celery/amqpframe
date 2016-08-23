@@ -1,8 +1,46 @@
 import io
+import math
 import struct
 import decimal
 import datetime
+import operator
 import itertools
+import functools
+import collections
+import collections.abc
+
+
+def _recursive_equals(first, second):
+    first_type = type(first)
+    second_type = type(second)
+
+    valid_iterable_types = (
+        collections.OrderedDict, Array, Table, ShortStr, LongStr
+    )
+    if (first_type not in valid_iterable_types and
+                second_type not in valid_iterable_types):
+        return first == second
+
+    # If values are strings
+    if first_type in (ShortStr, LongStr) and second_type in (ShortStr, LongStr):
+        return first == second
+
+    # At this point both first and second types are Array/Table
+    if first_type != second_type:
+        return False
+    if len(first) != len(second):
+        return False
+
+    if first_type is Array:
+        for v1, v2 in zip(first, second):
+            if not _recursive_equals(v1, v2):
+                return False
+
+    # first_type is types.Table
+    return _recursive_equals(
+        sorted(first.items(), key=operator.itemgetter(0)),
+        sorted(first.items(), key=operator.itemgetter(0)),
+    )
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -16,12 +54,14 @@ def grouper(iterable, n, fillvalue=None):
 # https://www.rabbitmq.com/amqp-0-9-1-errata.html#section_3
 
 
+@functools.total_ordering
 class BaseType:
     """Base type for all AMQP type classes.
     Except Bool, python do not allow to subclass bool type.
     """
 
     TABLE_LABEL = None
+
     _STRUCT_FMT = None
     _STRUCT_SIZE = None
 
@@ -34,29 +74,6 @@ class BaseType:
     def validate(cls, value):
         raise NotImplementedError
 
-    def to_python(self):
-        return self.value
-
-    def to_bytestream(self, stream: io.BytesIO):
-         stream.write(self.pack())
-#        try:
-#            stream.write(self.pack())
-#        except struct.error as exc:
-#            raise errors.InternalError(
-#                'Unable to pack {}'.format(self)
-#            ) from exc
-
-    @classmethod
-    def from_bytestream(cls, stream: io.BytesIO):
-        x, _ = cls.unpack(stream)
-        #try:
-        #    x, _ = cls.unpack(stream)
-        #except struct.error as exc:
-        #    raise errors.SyntaxError(
-        #        'Unable to unpack {} from the stream'.format(cls.__name__)
-        #    ) from exc
-        return cls(x)
-
     def pack(self):
         return struct.pack('!' + self._STRUCT_FMT, self.value)
 
@@ -64,6 +81,27 @@ class BaseType:
     def unpack(cls, stream: io.BytesIO):
         raw = stream.read(cls._STRUCT_SIZE)
         return struct.unpack('!' + cls._STRUCT_FMT, raw)[0], cls._STRUCT_SIZE
+
+    def to_bytestream(self, stream: io.BytesIO):
+        stream.write(self.pack())
+
+    @classmethod
+    def from_bytestream(cls, stream: io.BytesIO):
+        x, _ = cls.unpack(stream)
+        return cls(x)
+
+    def __eq__(self, other):
+        if isinstance(other, BaseType):
+            other = other.value
+        return self.value == other
+
+    def __lt__(self, other):
+        if isinstance(other, BaseType):
+            other = other.value
+        return self.value < other
+
+    def __hash__(self):
+        return hash(self.value)
 
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__name__, self.value)
@@ -73,7 +111,10 @@ def _bytes2bits(byte, reminder):
     byte = int.from_bytes(byte, byteorder='big')
     bits = bin(byte)[2:]  # Strip '0b'
     # Unfortunately, int.from_bytes strips leading zeroes, let's get them back
-    to_fill = (reminder // 8 + 1) * 8
+    to_fill = reminder // 8
+    if reminder % 8 != 0:
+        to_fill += 1
+    to_fill *= 8
     bits = bits.zfill(to_fill)
     # Get rid of unnecessary bits
     return bits[:reminder]
@@ -89,6 +130,9 @@ class Bool(BaseType):
     @classmethod
     def validate(cls, value):
         return bool(value)
+
+    def __bool__(self):
+        return bool(self.value)
 
     # pack and unpack used when packing/unpacking happens within tables/arrays
     # pack_many/many_to_bytestream and unpack_many/many_from_bytestream
@@ -111,7 +155,9 @@ class Bool(BaseType):
 
     @classmethod
     def unpack_many(cls, stream, number_of_bits):
-        bytes_count = number_of_bits // 8 + 1
+        bytes_count = number_of_bits // 8
+        if number_of_bits % 8 != 0:
+            bytes_count += 1
         bits = _bytes2bits(stream.read(bytes_count), number_of_bits)
         return [cls(b == '1') for b in bits]
 
@@ -123,11 +169,6 @@ class Bool(BaseType):
     @classmethod
     def many_from_bytestream(cls, stream, number_of_bits):
         return cls.unpack_many(stream, number_of_bits)
-
-    def __repr__(self):
-        return '<{}: {} at {}>'.format(
-            self.__class__.__name__, bool(self), id(self)
-        )
 
 Bit = Bool
 
@@ -293,7 +334,7 @@ class SignedLongLong(BaseType):
 
 
 class UnsignedLongLong(BaseType):
-    # Missing in rabbitmq/qpid
+    # Missing in rabbitmq/qpid table types
     TABLE_LABEL = None
 
     MIN = 0
@@ -329,6 +370,8 @@ class Float(BaseType):
     @classmethod
     def validate(cls, value):
         value = float(value)
+        if math.isnan(value):
+            raise ValueError
         try:
             return struct.unpack('!f', struct.pack('!f', value))[0]
         except OverflowError:
@@ -347,6 +390,8 @@ class Double(BaseType):
     @classmethod
     def validate(cls, value):
         value = float(value)
+        if math.isnan(value):
+            raise ValueError
         try:
             return struct.unpack('!d', struct.pack('!d', value))[0]
         except OverflowError:
@@ -363,7 +408,7 @@ class Decimal(BaseType):
 
     def __init__(self, value=None):
         if value is None:
-            value = Decimal(0)
+            value = decimal.Decimal(0)
         super().__init__(value)
 
     @classmethod
@@ -406,6 +451,8 @@ class ShortStr(BaseType):
     MAX = UnsignedByte.MAX
 
     def __init__(self, value=b''):
+        if isinstance(value, str):
+            value = value.encode('utf-8')
         super().__init__(value)
 
     @classmethod
@@ -420,9 +467,6 @@ class ShortStr(BaseType):
             )
         return value
 
-    def to_python(self):
-        return self.value.decode('utf-8')
-
     def pack(self):
         return UnsignedByte(len(self.value)).pack() + self.value
 
@@ -435,11 +479,13 @@ class ShortStr(BaseType):
 Shortstr = ShortStr
 
 
-class LongStr(BaseType, str):
+class LongStr(BaseType):
     TABLE_LABEL = b'S'
     MAX = UnsignedLong.MAX
 
     def __init__(self, value=b''):
+        if isinstance(value, str):
+            value = value.encode('utf-8')
         super().__init__(value)
 
     @classmethod
@@ -451,9 +497,6 @@ class LongStr(BaseType, str):
         if len(value) > cls.MAX:
             raise ValueError('value {!r} is too long for LongStr'.format(value))
         return value
-
-    def to_python(self):
-        return self.value.decode('utf-8')
 
     def pack(self):
         return UnsignedLong(len(self.value)).pack() + self.value
@@ -541,7 +584,7 @@ class Timestamp(BaseType):
         return value
 
     def pack(self):
-        stamp = int(self.value.timestamp())
+        stamp = self.value.timestamp()
         return UnsignedLongLong(stamp).pack()
 
     @classmethod
@@ -550,14 +593,25 @@ class Timestamp(BaseType):
         date = datetime.datetime.fromtimestamp(value)
         return cls(date), consumed
 
+    def __eq__(self, other):
+        if isinstance(other, BaseType):
+            other = other.value
+        diff = abs(self.value - other)
+        # Spec 4.2.5.4 Timestamps, accuracy: 1 second
+        return diff < datetime.timedelta(seconds=1)
 
-class Table(BaseType):
+
+class Table(BaseType, collections.abc.MutableMapping):
     TABLE_LABEL = b'F'
 
     def __init__(self, value=None):
         if value is None:
             value = {}
-        super().__init__(value)
+        self._value = self.validate(value)
+
+    @property
+    def value(self):
+        return {k.value: v.value for k, v in self._value.items()}
 
     @classmethod
     def validate(cls, value):
@@ -570,12 +624,9 @@ class Table(BaseType):
             validated[key] = value
         return validated
 
-    def to_python(self):
-        return {k.to_python(): v.to_python() for k, v in self.value.items()}
-
     def pack(self):
         stream = io.BytesIO()
-        for key, value in self.value.items():
+        for key, value in self._value.items():
             key.to_bytestream(stream)
             stream.write(value.TABLE_LABEL)
             value.to_bytestream(stream)
@@ -602,14 +653,52 @@ class Table(BaseType):
             result[key] = amqptype(value)
         return result, consumed
 
+    def __getitem__(self, key):
+        if isinstance(key, (str, bytes)):
+            key = ShortStr(key)
+        return self._value[key]
 
-class Array(BaseType):
+    def __setitem__(self, key, value):
+        if isinstance(key, (str, bytes)):
+            key = ShortStr(key)
+        if not isinstance(value, BaseType):
+            value = _py_type_to_amqp_type(value)
+        self._value[key] = value
+
+    def __delitem__(self, key):
+        if isinstance(key, (str, bytes)):
+            key = ShortStr(key)
+        del self._value[key]
+
+    def __iter__(self):
+        return iter(self._value)
+
+    def __len__(self):
+        return len(self._value)
+
+    def __eq__(self, other):
+        if isinstance(other, BaseType):
+            other = other.value
+        return _recursive_equals(self._value, other)
+
+    def __lt__(self, other):
+        return NotImplemented
+
+    def __hash__(self):
+        raise NotImplementedError
+
+
+class Array(BaseType, collections.abc.MutableSequence):
     TABLE_LABEL = b'A'
 
     def __init__(self, value=None):
         if value is None:
             value = []
-        super().__init__(value)
+        self._value = self.validate(value)
+
+    @property
+    def value(self):
+        return [v.value for v in self._value]
 
     @classmethod
     def validate(cls, value):
@@ -620,12 +709,9 @@ class Array(BaseType):
             validated.append(item)
         return validated
 
-    def to_python(self):
-        return [v.to_python() for v in self.value]
-
     def pack(self):
         stream = io.BytesIO()
-        for value in self.value:
+        for value in self._value:
             stream.write(value.TABLE_LABEL)
             value.to_bytestream(stream)
         buffer = stream.getvalue()
@@ -647,6 +733,33 @@ class Array(BaseType):
 
             result.append(amqptype(value))
         return result, consumed
+
+    def __getitem__(self, key):
+        return self._value[key]
+
+    def __setitem__(self, key, value):
+        if not isinstance(value, BaseType):
+            value = _py_type_to_amqp_type(value)
+        self._value[key] = value
+
+    def __delitem__(self, key):
+        del self._value[key]
+
+    def __len__(self):
+        return len(self._value)
+
+    def insert(self, index, value):
+        if not isinstance(value, BaseType):
+            value = _py_type_to_amqp_type(value)
+        self._value.insert(index, value)
+
+    def __hash__(self):
+        raise NotImplementedError
+
+    def __eq__(self, other):
+        if isinstance(other, BaseType):
+            other = other.value
+        return _recursive_equals(self._value, other)
 
 
 def _py_type_to_amqp_type(value):
@@ -671,19 +784,18 @@ def _py_type_to_amqp_type(value):
         except ValueError:
             value = Double(value)
     elif isinstance(value, int):
-        if value < 0:
-            classes = SignedByte, SignedShort, SignedLong, SignedLongLong
-        else:
-            classes = UnsignedByte, UnsignedShort, UnsignedLong
         last_error = None
-        for cls in classes:
+        for cls in (SignedByte, UnsignedByte,
+                    SignedShort, UnsignedShort,
+                    SignedLong, UnsignedLong,
+                    SignedLongLong):
             try:
                 value = cls(value)
                 last_error = None
                 break
             except ValueError as exc:
                 last_error = exc
-        if last_error is not None:
+        if last_error is not None:  # pragma: no cover
             raise last_error
     elif isinstance(value, decimal.Decimal):
         value = Decimal(value)

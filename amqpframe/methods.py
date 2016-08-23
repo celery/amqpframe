@@ -9,35 +9,10 @@ This file was generated 2016-08-05 from
 
 """
 import io
-import operator
 import collections
 
 from . import types
-
-
-def _recursive_equals(first, second):
-    first_type = type(first)
-    second_type = type(second)
-    valid_iterable_types = collections.OrderedDict, types.Array, types.Table
-    if (first_type not in valid_iterable_types and
-            second_type not in valid_iterable_types):
-        return first == second
-
-    if first_type != second_type:
-        return False
-    if len(first) != len(second):
-        return False
-
-    if first_type is types.Array:
-        for v1, v2 in zip(first, second):
-            if not _recursive_equals(v1, v2):
-                return False
-
-    # first_type is types.Tablw
-    return _recursive_equals(
-        sorted(first.items(), key=operator.itemgetter(0)),
-        sorted(first.items(), key=operator.itemgetter(0)),
-    )
+_recursive_equals = types._recursive_equals
 
 
 class Method:
@@ -57,9 +32,9 @@ class Method:
     @classmethod
     def from_bytestream(cls, stream):
         # Unpacking method type, spec 2.3.5.1 Method Frames
-        class_id = types.UnsignedShort.from_bytestream(stream).to_python()
-        method_id = types.UnsignedShort.from_bytestream(stream).to_python()
-        method_cls = METHODS[(class_id, method_id)]
+        class_id = types.UnsignedShort.from_bytestream(stream)
+        method_id = types.UnsignedShort.from_bytestream(stream)
+        method_cls = METHODS[(class_id.value, method_id.value)]
 
         kwargs = {}
         bit_names = []
