@@ -17,4 +17,4 @@ codestyle: codestyle-deps
 	$(PYFORMAT) --exclude methods.py --exclude errors.py -r -i amqpframe
 
 codestyle-deps:
-	$(PIP) install -U -r requirements/codestyle.txt
+	$(PIP) install -r requirements/codestyle.txt
