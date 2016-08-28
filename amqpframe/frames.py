@@ -122,7 +122,10 @@ class ProtocolHeaderPayload:
 
     PREFIX = b'AMQP\x00'
 
-    def __init__(self, protocol_major=0, protocol_minor=9, protocol_revision=1):
+    def __init__(self,
+                 protocol_major=0,
+                 protocol_minor=9,
+                 protocol_revision=1):
         self.protocol_major = protocol_major
         self.protocol_minor = protocol_minor
         self.protocol_revision = protocol_revision
