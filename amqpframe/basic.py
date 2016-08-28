@@ -1,10 +1,8 @@
-import io
 import enum
 import datetime
 import collections
 
 from . import types
-
 
 PROPERTIES = (
     ('content_type', types.Shortstr),
@@ -31,19 +29,19 @@ class Message:
         Persistent = 2
 
     def __init__(self, body, *,
-                 content_type: str = 'application/octet-stream',
-                 content_encoding: str = 'utf-8',
-                 headers: dict = None,
-                 delivery_mode: DeliveryMode = None,
-                 priority: int = None,
-                 correlation_id: str = None,
-                 reply_to: str = None,
-                 expiration: str = None,
-                 message_id: str = None,
-                 timestamp: datetime.datetime = None,
-                 type: str = None,
-                 user_id: str = None,
-                 app_id: str = None):
+                 content_type: str='application/octet-stream',
+                 content_encoding: str='utf-8',
+                 headers: dict=None,
+                 delivery_mode: DeliveryMode=None,
+                 priority: int=None,
+                 correlation_id: str=None,
+                 reply_to: str=None,
+                 expiration: str=None,
+                 message_id: str=None,
+                 timestamp: datetime.datetime=None,
+                 type: str=None,
+                 user_id: str=None,
+                 app_id: str=None):
         if isinstance(body, bytes):
             self.body = body
         else:
