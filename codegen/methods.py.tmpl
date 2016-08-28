@@ -8,10 +8,11 @@ This file was generated {{ gendate }} from
 {{ gensource }}.
 
 """
-import datadiff
+import io
 import collections
 
 from . import types
+_recursive_equals = types._recursive_equals
 
 
 class Method:
@@ -29,11 +30,11 @@ class Method:
             self.values[name] = value
 
     @classmethod
-    def from_bytestream(cls, stream):
+    def from_bytestream(cls, stream: io.BytesIO):
         # Unpacking method type, spec 2.3.5.1 Method Frames
         class_id = types.UnsignedShort.from_bytestream(stream)
         method_id = types.UnsignedShort.from_bytestream(stream)
-        method_cls = METHODS[(class_id, method_id)]
+        method_cls = METHODS[(class_id.value, method_id.value)]
 
         kwargs = {}
         bit_names = []
@@ -64,7 +65,7 @@ class Method:
             bit_names.clear()
         return method_cls(**kwargs)
 
-    def to_bytestream(self, stream):
+    def to_bytestream(self, stream: io.BytesIO):
         # Packing method type, spec 2.3.5.1 Method Frames
         types.UnsignedShort(self.method_type[0]).to_bytestream(stream)
         types.UnsignedShort(self.method_type[1]).to_bytestream(stream)
@@ -91,7 +92,7 @@ class Method:
 
     def __eq__(self, other):
         return (self.method_type == other.method_type and
-                self.values == other.values)
+                _recursive_equals(self.values, other.values))
 
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__qualname__,
@@ -131,9 +132,9 @@ class {{ name }}(Method):
         super().__init__(
 {% for name, type in fields.items() %}
 {% if not name.startswith('reserved') %}
-             {{ name if name != 'global' else 'global_' }},
+            {{ name if name != 'global' else 'global_' }},
 {% else %}
-             types.{{ type }}(),
+            types.{{ type }}(),
 {% endif %}
 {% endfor %}
         )
@@ -147,3 +148,4 @@ METHODS = {
     {{ type }}: {{ name }},
 {% endfor %}
 }
+

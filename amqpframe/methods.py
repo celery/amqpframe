@@ -4,7 +4,7 @@ amqpframe.methods
 
 Implementation of AMQP methods.
 
-This file was generated 2016-08-05 from
+This file was generated 2016-08-28 from
 /codegen/amqp0-9-1.extended.xml.
 
 """
@@ -12,6 +12,7 @@ import io
 import collections
 
 from . import types
+
 _recursive_equals = types._recursive_equals
 
 
@@ -30,7 +31,7 @@ class Method:
             self.values[name] = value
 
     @classmethod
-    def from_bytestream(cls, stream):
+    def from_bytestream(cls, stream: io.BytesIO):
         # Unpacking method type, spec 2.3.5.1 Method Frames
         class_id = types.UnsignedShort.from_bytestream(stream)
         method_id = types.UnsignedShort.from_bytestream(stream)
@@ -70,7 +71,7 @@ class Method:
         types.UnsignedShort(self.method_type[0]).to_bytestream(stream)
         types.UnsignedShort(self.method_type[1]).to_bytestream(stream)
         bits = []
-        for name, value in self.values.items():
+        for value in self.values.values():
             if isinstance(value, types.Bool):
                 bits.append(value.value)
             else:
@@ -131,11 +132,11 @@ class ConnectionStart(Method):
                  mechanisms,
                  locales):
         super().__init__(
-             version_major,
-             version_minor,
-             server_properties,
-             mechanisms,
-             locales,
+            version_major,
+            version_minor,
+            server_properties,
+            mechanisms,
+            locales,
         )
 
 
@@ -165,10 +166,10 @@ class ConnectionStartOK(Method):
                  response,
                  locale):
         super().__init__(
-             client_properties,
-             mechanism,
-             response,
-             locale,
+            client_properties,
+            mechanism,
+            response,
+            locale,
         )
 
 
@@ -191,7 +192,7 @@ class ConnectionSecure(Method):
     def __init__(self, *,
                  challenge):
         super().__init__(
-             challenge,
+            challenge,
         )
 
 
@@ -213,7 +214,7 @@ class ConnectionSecureOK(Method):
     def __init__(self, *,
                  response):
         super().__init__(
-             response,
+            response,
         )
 
 
@@ -241,9 +242,9 @@ class ConnectionTune(Method):
                  frame_max,
                  heartbeat):
         super().__init__(
-             channel_max,
-             frame_max,
-             heartbeat,
+            channel_max,
+            frame_max,
+            heartbeat,
         )
 
 
@@ -272,9 +273,9 @@ class ConnectionTuneOK(Method):
                  frame_max,
                  heartbeat):
         super().__init__(
-             channel_max,
-             frame_max,
-             heartbeat,
+            channel_max,
+            frame_max,
+            heartbeat,
         )
 
 
@@ -305,9 +306,9 @@ class ConnectionOpen(Method):
                  reserved_1=None,
                  reserved_2=None):
         super().__init__(
-             virtual_host,
-             types.Shortstr(),
-             types.Bit(),
+            virtual_host,
+            types.Shortstr(),
+            types.Bit(),
         )
 
 
@@ -328,7 +329,7 @@ class ConnectionOpenOK(Method):
     def __init__(self, *,
                  reserved_1=None):
         super().__init__(
-             types.Shortstr(),
+            types.Shortstr(),
         )
 
 
@@ -362,10 +363,10 @@ class ConnectionClose(Method):
                  class_id,
                  method_id):
         super().__init__(
-             reply_code,
-             reply_text,
-             class_id,
-             method_id,
+            reply_code,
+            reply_text,
+            class_id,
+            method_id,
         )
 
 
@@ -398,7 +399,7 @@ class ChannelOpen(Method):
     def __init__(self, *,
                  reserved_1=None):
         super().__init__(
-             types.Shortstr(),
+            types.Shortstr(),
         )
 
 
@@ -419,7 +420,7 @@ class ChannelOpenOK(Method):
     def __init__(self, *,
                  reserved_1=None):
         super().__init__(
-             types.Longstr(),
+            types.Longstr(),
         )
 
 
@@ -445,7 +446,7 @@ class ChannelFlow(Method):
     def __init__(self, *,
                  active):
         super().__init__(
-             active,
+            active,
         )
 
 
@@ -466,7 +467,7 @@ class ChannelFlowOK(Method):
     def __init__(self, *,
                  active):
         super().__init__(
-             active,
+            active,
         )
 
 
@@ -500,10 +501,10 @@ class ChannelClose(Method):
                  class_id,
                  method_id):
         super().__init__(
-             reply_code,
-             reply_text,
-             class_id,
-             method_id,
+            reply_code,
+            reply_text,
+            class_id,
+            method_id,
         )
 
 
@@ -560,15 +561,15 @@ class ExchangeDeclare(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             types.Short(),
-             exchange,
-             type,
-             passive,
-             durable,
-             auto_delete,
-             internal,
-             no_wait,
-             arguments,
+            types.Short(),
+            exchange,
+            type,
+            passive,
+            durable,
+            auto_delete,
+            internal,
+            no_wait,
+            arguments,
         )
 
 
@@ -610,10 +611,10 @@ class ExchangeDelete(Method):
                  if_unused,
                  no_wait):
         super().__init__(
-             types.Short(),
-             exchange,
-             if_unused,
-             no_wait,
+            types.Short(),
+            exchange,
+            if_unused,
+            no_wait,
         )
 
 
@@ -659,12 +660,12 @@ class ExchangeBind(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             types.Short(),
-             destination,
-             source,
-             routing_key,
-             no_wait,
-             arguments,
+            types.Short(),
+            destination,
+            source,
+            routing_key,
+            no_wait,
+            arguments,
         )
 
 
@@ -710,12 +711,12 @@ class ExchangeUnbind(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             types.Short(),
-             destination,
-             source,
-             routing_key,
-             no_wait,
-             arguments,
+            types.Short(),
+            destination,
+            source,
+            routing_key,
+            no_wait,
+            arguments,
         )
 
 
@@ -769,14 +770,14 @@ class QueueDeclare(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             types.Short(),
-             queue,
-             passive,
-             durable,
-             exclusive,
-             auto_delete,
-             no_wait,
-             arguments,
+            types.Short(),
+            queue,
+            passive,
+            durable,
+            exclusive,
+            auto_delete,
+            no_wait,
+            arguments,
         )
 
 
@@ -804,9 +805,9 @@ class QueueDeclareOK(Method):
                  message_count,
                  consumer_count):
         super().__init__(
-             queue,
-             message_count,
-             consumer_count,
+            queue,
+            message_count,
+            consumer_count,
         )
 
 
@@ -845,12 +846,12 @@ class QueueBind(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             types.Short(),
-             queue,
-             exchange,
-             routing_key,
-             no_wait,
-             arguments,
+            types.Short(),
+            queue,
+            exchange,
+            routing_key,
+            no_wait,
+            arguments,
         )
 
 
@@ -893,11 +894,11 @@ class QueueUnbind(Method):
                  routing_key,
                  arguments):
         super().__init__(
-             types.Short(),
-             queue,
-             exchange,
-             routing_key,
-             arguments,
+            types.Short(),
+            queue,
+            exchange,
+            routing_key,
+            arguments,
         )
 
 
@@ -935,9 +936,9 @@ class QueuePurge(Method):
                  queue,
                  no_wait):
         super().__init__(
-             types.Short(),
-             queue,
-             no_wait,
+            types.Short(),
+            queue,
+            no_wait,
         )
 
 
@@ -958,7 +959,7 @@ class QueuePurgeOK(Method):
     def __init__(self, *,
                  message_count):
         super().__init__(
-             message_count,
+            message_count,
         )
 
 
@@ -993,11 +994,11 @@ class QueueDelete(Method):
                  if_empty,
                  no_wait):
         super().__init__(
-             types.Short(),
-             queue,
-             if_unused,
-             if_empty,
-             no_wait,
+            types.Short(),
+            queue,
+            if_unused,
+            if_empty,
+            no_wait,
         )
 
 
@@ -1018,7 +1019,7 @@ class QueueDeleteOK(Method):
     def __init__(self, *,
                  message_count):
         super().__init__(
-             message_count,
+            message_count,
         )
 
 
@@ -1049,9 +1050,9 @@ class BasicQos(Method):
                  prefetch_count,
                  global_):
         super().__init__(
-             prefetch_size,
-             prefetch_count,
-             global_,
+            prefetch_size,
+            prefetch_count,
+            global_,
         )
 
 
@@ -1107,14 +1108,14 @@ class BasicConsume(Method):
                  no_wait,
                  arguments):
         super().__init__(
-             types.Short(),
-             queue,
-             consumer_tag,
-             no_local,
-             no_ack,
-             exclusive,
-             no_wait,
-             arguments,
+            types.Short(),
+            queue,
+            consumer_tag,
+            no_local,
+            no_ack,
+            exclusive,
+            no_wait,
+            arguments,
         )
 
 
@@ -1136,7 +1137,7 @@ class BasicConsumeOK(Method):
     def __init__(self, *,
                  consumer_tag):
         super().__init__(
-             consumer_tag,
+            consumer_tag,
         )
 
 
@@ -1171,8 +1172,8 @@ class BasicCancel(Method):
                  consumer_tag,
                  no_wait):
         super().__init__(
-             consumer_tag,
-             no_wait,
+            consumer_tag,
+            no_wait,
         )
 
 
@@ -1193,7 +1194,7 @@ class BasicCancelOK(Method):
     def __init__(self, *,
                  consumer_tag):
         super().__init__(
-             consumer_tag,
+            consumer_tag,
         )
 
 
@@ -1229,11 +1230,11 @@ class BasicPublish(Method):
                  mandatory,
                  immediate):
         super().__init__(
-             types.Short(),
-             exchange,
-             routing_key,
-             mandatory,
-             immediate,
+            types.Short(),
+            exchange,
+            routing_key,
+            mandatory,
+            immediate,
         )
 
 
@@ -1266,10 +1267,10 @@ class BasicReturn(Method):
                  exchange,
                  routing_key):
         super().__init__(
-             reply_code,
-             reply_text,
-             exchange,
-             routing_key,
+            reply_code,
+            reply_text,
+            exchange,
+            routing_key,
         )
 
 
@@ -1305,11 +1306,11 @@ class BasicDeliver(Method):
                  exchange,
                  routing_key):
         super().__init__(
-             consumer_tag,
-             delivery_tag,
-             redelivered,
-             exchange,
-             routing_key,
+            consumer_tag,
+            delivery_tag,
+            redelivered,
+            exchange,
+            routing_key,
         )
 
 
@@ -1338,9 +1339,9 @@ class BasicGet(Method):
                  queue,
                  no_ack):
         super().__init__(
-             types.Short(),
-             queue,
-             no_ack,
+            types.Short(),
+            queue,
+            no_ack,
         )
 
 
@@ -1375,11 +1376,11 @@ class BasicGetOK(Method):
                  routing_key,
                  message_count):
         super().__init__(
-             delivery_tag,
-             redelivered,
-             exchange,
-             routing_key,
-             message_count,
+            delivery_tag,
+            redelivered,
+            exchange,
+            routing_key,
+            message_count,
         )
 
 
@@ -1401,7 +1402,7 @@ class BasicGetEmpty(Method):
     def __init__(self, *,
                  reserved_1=None):
         super().__init__(
-             types.Shortstr(),
+            types.Shortstr(),
         )
 
 
@@ -1429,8 +1430,8 @@ class BasicAck(Method):
                  delivery_tag,
                  multiple):
         super().__init__(
-             delivery_tag,
-             multiple,
+            delivery_tag,
+            multiple,
         )
 
 
@@ -1456,8 +1457,8 @@ class BasicReject(Method):
                  delivery_tag,
                  requeue):
         super().__init__(
-             delivery_tag,
-             requeue,
+            delivery_tag,
+            requeue,
         )
 
 
@@ -1480,7 +1481,7 @@ class BasicRecoverAsync(Method):
     def __init__(self, *,
                  requeue):
         super().__init__(
-             requeue,
+            requeue,
         )
 
 
@@ -1503,7 +1504,7 @@ class BasicRecover(Method):
     def __init__(self, *,
                  requeue):
         super().__init__(
-             requeue,
+            requeue,
         )
 
 
@@ -1545,9 +1546,9 @@ class BasicNack(Method):
                  multiple,
                  requeue):
         super().__init__(
-             delivery_tag,
-             multiple,
-             requeue,
+            delivery_tag,
+            multiple,
+            requeue,
         )
 
 
@@ -1640,7 +1641,7 @@ class ConfirmSelect(Method):
     def __init__(self, *,
                  nowait):
         super().__init__(
-             nowait,
+            nowait,
         )
 
 
