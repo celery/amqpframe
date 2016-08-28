@@ -10,7 +10,7 @@ PYFORMAT=$(BIN)/pyformat
 
 
 codestyle: codestyle-deps
-	$(ISORT) -p amqpframe -ls -m 2 -rc amqpframe
+	$(ISORT) -p amqpframe -ls -sl -rc amqpframe
 	$(PYFORMAT) --exclude methods.py --exclude errors.py -r -i amqpframe
 
 check-codestyle: codestyle
