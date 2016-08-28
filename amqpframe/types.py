@@ -1,16 +1,67 @@
+"""
+amqpframe.types
+~~~~~~~~~~~~~~~
+
+Implementation of AMQP types.
+
+Instances of type classes behave like standard python types. For example,
+all numeric types can be compared with built-in numeric types like
+`int`, `float` and `decimal.Decimal`.
+
+A type class instance can be created in two ways:
+
+    * directly via constructor,
+    * via classmethod `from_bytestring` which accepts a `io.BytesIO` instance.
+
+A type class instance can be serialized into a `io.BytesIO` instance via
+`to_bytestring` method.
+
+The specification also defines the set of types that can be used within
+`Table`s and `Array`s. Such types define `TABLE_LABEL` class attribute
+according to the following link:
+https://www.rabbitmq.com/amqp-0-9-1-errata.html#section_3
+Type classes that cannot be used within `Table`s and `Arrays` have
+`TABLE_LABEL` set to `None`.
+
+According to the specification, 4.2.5.2 bits are accumulated into whole octets.
+This doesn't happen within `Table`s and `Array`s.
+To serialize multiple accumulated bits, method `Bool.many_to_bytestream`
+should be used.  To deserialize multiple accumulated bits, method
+`Bool.many_from_bytestream` should be used.
+
+In order to add a custom type class, one should subclass `BaseType` and
+override the following methods:
+
+    * `validate`,
+    * `pack`,
+    * `unpack`,
+
+and the following properties:
+
+    * `value`.
+
+`BaseType` provides a handy shortcuts for simple types (types that can be
+serialized/deserialized via a single `struct.pack` call, for example numeric
+types), in that case one only need to override `validate` method.
+
+"""
+# There isn't much to document except for the module docstring...
+# pylint: disable=missing-docstring
+
 import io
 import math
 import struct
 import decimal
 import datetime
 import operator
-import itertools
 import functools
+import itertools
 import collections
 import collections.abc
 
 
 def _recursive_equals(first, second):
+    # TODO this ugly, cumbersome piece of code should be somehow refactored
     first_type = type(first)
     second_type = type(second)
 
@@ -18,11 +69,12 @@ def _recursive_equals(first, second):
         collections.OrderedDict, Array, Table, ShortStr, LongStr
     )
     if (first_type not in valid_iterable_types and
-                second_type not in valid_iterable_types):
+            second_type not in valid_iterable_types):
         return first == second
 
     # If values are strings
-    if first_type in (ShortStr, LongStr) and second_type in (ShortStr, LongStr):
+    valid_str_types = ShortStr, LongStr
+    if first_type in valid_str_types and second_type in valid_str_types:
         return first == second
 
     # At this point both first and second types are Array/Table
@@ -32,8 +84,8 @@ def _recursive_equals(first, second):
         return False
 
     if first_type is Array:
-        for v1, v2 in zip(first, second):
-            if not _recursive_equals(v1, v2):
+        for val_first, val_second in zip(first, second):
+            if not _recursive_equals(val_first, val_second):
                 return False
 
     # first_type is types.Table
@@ -43,22 +95,16 @@ def _recursive_equals(first, second):
     )
 
 
-def grouper(iterable, n, fillvalue=None):
-    """Collect data into fixed-length chunks or blocks"""
+# Seamlessly take from itertools recipes... ;)
+def grouper(iterable, group_size, fillvalue=None):
+    """Collect data into fixed-length chunks or blocks."""
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
-    args = [iter(iterable)] * n
+    args = [iter(iterable)] * group_size
     return itertools.zip_longest(*args, fillvalue=fillvalue)
-
-
-# Note some types are not present in table, please refer to
-# https://www.rabbitmq.com/amqp-0-9-1-errata.html#section_3
 
 
 @functools.total_ordering
 class BaseType:
-    """Base type for all AMQP type classes.
-    Except Bool, python do not allow to subclass bool type.
-    """
 
     TABLE_LABEL = None
 
@@ -68,7 +114,11 @@ class BaseType:
     def __init__(self, value):
         if isinstance(value, BaseType):
             value = value.value
-        self.value = self.validate(value)
+        self._value = self.validate(value)
+
+    @property
+    def value(self):
+        return self._value
 
     @classmethod
     def validate(cls, value):
@@ -87,8 +137,8 @@ class BaseType:
 
     @classmethod
     def from_bytestream(cls, stream: io.BytesIO):
-        x, _ = cls.unpack(stream)
-        return cls(x)
+        value, _ = cls.unpack(stream)
+        return cls(value)
 
     def __eq__(self, other):
         if isinstance(other, BaseType):
@@ -188,7 +238,7 @@ class SignedByte(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -210,7 +260,7 @@ class UnsignedByte(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -234,7 +284,7 @@ class SignedShort(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -256,7 +306,7 @@ class UnsignedShort(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -280,7 +330,7 @@ class SignedLong(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -302,7 +352,7 @@ class UnsignedLong(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -326,7 +376,7 @@ class SignedLongLong(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -349,7 +399,7 @@ class UnsignedLongLong(BaseType):
     @classmethod
     def validate(cls, value):
         value = int(value)
-        if not (cls.MIN <= value <= cls.MAX):
+        if not cls.MIN <= value <= cls.MAX:
             raise ValueError('value {} must be in range: {}, {}'.format(
                 value, cls.MIN, cls.MAX
             ))
@@ -416,7 +466,7 @@ class Decimal(BaseType):
         if not isinstance(value, decimal.Decimal):
             raise ValueError('value must be of type `decimal.Decimal`, '
                              'got {} instead'.format(type(value)))
-        sign, digits, exponent = value.as_tuple()
+        sign, _, exponent = value.as_tuple()
         if (sign == 0 and
                 exponent != 'F' and  # Decimal('Infinity')
                 exponent != 'n' and  # Decimal('NaN')
@@ -427,21 +477,21 @@ class Decimal(BaseType):
 
     def pack(self):
         sign, digits, exponent = self.value.as_tuple()
-        v = 0
-        for d in digits:
-            v = v * 10 + d
+        value = 0
+        for digit in digits:
+            value = value * 10 + digit
         if sign:
-            v = -v
-        return UnsignedByte(-exponent).pack() + UnsignedLong(v).pack()
+            value = -value
+        return UnsignedByte(-exponent).pack() + UnsignedLong(value).pack()
 
     @classmethod
     def unpack(cls, stream: io.BytesIO):
         total = 0
         exponent, consumed = UnsignedByte.unpack(stream)
         total += consumed
-        v, consumed = UnsignedLong.unpack(stream)
+        value, consumed = UnsignedLong.unpack(stream)
         total += consumed
-        value = decimal.Decimal(v) / decimal.Decimal(10 ** exponent)
+        value = decimal.Decimal(value) / decimal.Decimal(10 ** exponent)
         return cls(value), total
 
 
@@ -495,7 +545,9 @@ class LongStr(BaseType):
         except UnicodeDecodeError:
             raise ValueError('value must be utf-8 encoded bytes')
         if len(value) > cls.MAX:
-            raise ValueError('value {!r} is too long for LongStr'.format(value))
+            raise ValueError(
+                'value {!r} is too long for LongStr'.format(value)
+            )
         return value
 
     def pack(self):
@@ -515,7 +567,7 @@ class Void(BaseType):
     TABLE_LABEL = b'V'
 
     def __init__(self, value=None):
-        self.value = self.validate(value)
+        super().__init__(value)
 
     @classmethod
     def validate(cls, value):
@@ -534,7 +586,7 @@ class Void(BaseType):
 
 
 class ByteArray(BaseType):
-    # According to https://github.com/alanxz/rabbitmq-c/blob/master/librabbitmq/amqp_table.c#L256-L267
+    # According to http://bit.ly/librabbitmq_amqp_table_c
     # bytearrays behave like `LongStr`ings but have different semantics.
 
     TABLE_LABEL = b'x'
@@ -607,7 +659,7 @@ class Table(BaseType, collections.abc.MutableMapping):
     def __init__(self, value=None):
         if value is None:
             value = {}
-        self._value = self.validate(value)
+        super().__init__(value)
 
     @property
     def value(self):
@@ -620,6 +672,7 @@ class Table(BaseType, collections.abc.MutableMapping):
             if not isinstance(key, ShortStr):
                 key = ShortStr(key)
             if not isinstance(value, BaseType):
+                # pylint: disable=E1111
                 value = _py_type_to_amqp_type(value)
             validated[key] = value
         return validated
@@ -639,6 +692,7 @@ class Table(BaseType, collections.abc.MutableMapping):
         table_len, initial = UnsignedLong.unpack(stream)
         consumed = initial
 
+        # pylint: disable=C0103
         while consumed < initial + table_len:
             key, x = ShortStr.unpack(stream)
             consumed += x
@@ -662,6 +716,7 @@ class Table(BaseType, collections.abc.MutableMapping):
         if isinstance(key, (str, bytes)):
             key = ShortStr(key)
         if not isinstance(value, BaseType):
+            # pylint: disable=E1111
             value = _py_type_to_amqp_type(value)
         self._value[key] = value
 
@@ -694,7 +749,7 @@ class Array(BaseType, collections.abc.MutableSequence):
     def __init__(self, value=None):
         if value is None:
             value = []
-        self._value = self.validate(value)
+        super().__init__(value)
 
     @property
     def value(self):
@@ -705,6 +760,7 @@ class Array(BaseType, collections.abc.MutableSequence):
         validated = []
         for item in value:
             if not isinstance(item, BaseType):
+                # pylint: disable=E1111
                 item = _py_type_to_amqp_type(item)
             validated.append(item)
         return validated
@@ -723,6 +779,7 @@ class Array(BaseType, collections.abc.MutableSequence):
         array_len, consumed = UnsignedLong.unpack(stream)
         initial = consumed
 
+        # pylint: disable=C0103
         while consumed < (array_len + initial):
             label = stream.read(1)
             consumed += 1
@@ -739,6 +796,7 @@ class Array(BaseType, collections.abc.MutableSequence):
 
     def __setitem__(self, key, value):
         if not isinstance(value, BaseType):
+            # pylint: disable=E1111
             value = _py_type_to_amqp_type(value)
         self._value[key] = value
 
@@ -750,6 +808,7 @@ class Array(BaseType, collections.abc.MutableSequence):
 
     def insert(self, index, value):
         if not isinstance(value, BaseType):
+            # pylint: disable=E1111
             value = _py_type_to_amqp_type(value)
         self._value.insert(index, value)
 
@@ -768,13 +827,13 @@ def _py_type_to_amqp_type(value):
 
 
 @_py_type_to_amqp_type.register(bool)
-def _(value):
+def _py_type_to_amqp_bool(value):
     return Bool(value)
 
 
 @_py_type_to_amqp_type.register(str)
 @_py_type_to_amqp_type.register(bytes)
-def _(value):
+def _py_type_to_amqp_str_bytes(value):
     if isinstance(value, bytes):
         try:
             # If we can decode UTF-8, it's LongStr
@@ -790,7 +849,8 @@ def _(value):
 
 
 @_py_type_to_amqp_type.register(float)
-def _(value):
+def _py_type_to_amqp_float(value):
+    # pylint: disable=R0204
     try:
         value = Float(value)
     except ValueError:
@@ -799,7 +859,7 @@ def _(value):
 
 
 @_py_type_to_amqp_type.register(int)
-def _(value):
+def _py_type_to_amqp_int(value):
     last_error = None
     for cls in (SignedByte, UnsignedByte,
                 SignedShort, UnsignedShort,
@@ -812,36 +872,38 @@ def _(value):
         except ValueError as exc:
             last_error = exc
     if last_error is not None:  # pragma: no cover
+        # pylint: disable=E0702
         raise last_error
     return value
 
 
 @_py_type_to_amqp_type.register(decimal.Decimal)
-def _(value):
+def _py_type_to_amqp_decimal(value):
     return Decimal(value)
 
 
 @_py_type_to_amqp_type.register(datetime.datetime)
-def _(value):
+def _py_type_to_amqp_datetime(value):
     return Timestamp(value)
 
 
 @_py_type_to_amqp_type.register(collections.abc.Mapping)
-def _(value):
+def _py_type_to_amqp_mapping(value):
     return Table(value)
 
 
 @_py_type_to_amqp_type.register(list)
 @_py_type_to_amqp_type.register(tuple)
-def _(value):
+def _py_type_to_amqp_list_tuple(value):
     return Array(value)
 
 
 @_py_type_to_amqp_type.register(type(None))
-def _(value):
-    return Void()
+def _py_type_to_amqp_none(value):
+    return Void(value)
 
 
+# pylint: disable=E1101
 TABLE_LABEL_TO_CLS = {cls.TABLE_LABEL: cls
                       for cls in BaseType.__subclasses__()
                       if cls.TABLE_LABEL is not None}
