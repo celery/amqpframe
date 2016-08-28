@@ -9,12 +9,12 @@ PYLINT=$(BIN)/pylint
 PYFORMAT=$(BIN)/pyformat
 
 
+codestyle-check: codestyle
+	git diff --exit-code
+
 codestyle: codestyle-deps
 	$(ISORT) -p amqpframe -ls -sl -rc amqpframe
 	$(PYFORMAT) --exclude methods.py --exclude errors.py -r -i amqpframe
-
-check-codestyle: codestyle
-	git diff --exit-code
 
 codestyle-deps:
 	$(PIP) install -U -r requirements/codestyle.txt
