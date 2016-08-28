@@ -762,54 +762,84 @@ class Array(BaseType, collections.abc.MutableSequence):
         return _recursive_equals(self._value, other)
 
 
+@functools.singledispatch
 def _py_type_to_amqp_type(value):
-    if isinstance(value, bool):
-        value = Bool(value)
-    elif isinstance(value, (str, bytes)):
-        if isinstance(value, bytes):
-            try:
-                # If we can decode UTF-8, it's LongStr
-                # No ShortStr support in rabbitmq/qpid
-                value.decode('utf-8')
-                cls = LongStr
-            except UnicodeDecodeError:
-                # If we can't decode UTF-8, it's ByteArray
-                cls = ByteArray
-        else:
-            cls = LongStr
-        value = cls(value)
-    elif isinstance(value, float):
+    raise ValueError(value)
+
+
+@_py_type_to_amqp_type.register(bool)
+def _(value):
+    return Bool(value)
+
+
+@_py_type_to_amqp_type.register(str)
+@_py_type_to_amqp_type.register(bytes)
+def _(value):
+    if isinstance(value, bytes):
         try:
-            value = Float(value)
-        except ValueError:
-            value = Double(value)
-    elif isinstance(value, int):
-        last_error = None
-        for cls in (SignedByte, UnsignedByte,
-                    SignedShort, UnsignedShort,
-                    SignedLong, UnsignedLong,
-                    SignedLongLong):
-            try:
-                value = cls(value)
-                last_error = None
-                break
-            except ValueError as exc:
-                last_error = exc
-        if last_error is not None:  # pragma: no cover
-            raise last_error
-    elif isinstance(value, decimal.Decimal):
-        value = Decimal(value)
-    elif isinstance(value, datetime.datetime):
-        value = Timestamp(value)
-    elif isinstance(value, dict):
-        value = Table(value)
-    elif isinstance(value, (list, tuple)):
-        value = Array(value)
-    elif value is None:
-        value = Void()
+            # If we can decode UTF-8, it's LongStr
+            # No ShortStr support in rabbitmq/qpid
+            value.decode('utf-8')
+            cls = LongStr
+        except UnicodeDecodeError:
+            # If we can't decode UTF-8, it's ByteArray
+            cls = ByteArray
     else:
-        raise ValueError()
+        cls = LongStr
+    return cls(value)
+
+
+@_py_type_to_amqp_type.register(float)
+def _(value):
+    try:
+        value = Float(value)
+    except ValueError:
+        value = Double(value)
     return value
+
+
+@_py_type_to_amqp_type.register(int)
+def _(value):
+    last_error = None
+    for cls in (SignedByte, UnsignedByte,
+                SignedShort, UnsignedShort,
+                SignedLong, UnsignedLong,
+                SignedLongLong):
+        try:
+            value = cls(value)
+            last_error = None
+            break
+        except ValueError as exc:
+            last_error = exc
+    if last_error is not None:  # pragma: no cover
+        raise last_error
+    return value
+
+
+@_py_type_to_amqp_type.register(decimal.Decimal)
+def _(value):
+    return Decimal(value)
+
+
+@_py_type_to_amqp_type.register(datetime.datetime)
+def _(value):
+    return Timestamp(value)
+
+
+@_py_type_to_amqp_type.register(collections.abc.Mapping)
+def _(value):
+    return Table(value)
+
+
+@_py_type_to_amqp_type.register(list)
+@_py_type_to_amqp_type.register(tuple)
+def _(value):
+    return Array(value)
+
+
+@_py_type_to_amqp_type.register(type(None))
+def _(value):
+    return Void()
 
 
 TABLE_LABEL_TO_CLS = {cls.TABLE_LABEL: cls
