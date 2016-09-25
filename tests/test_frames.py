@@ -28,7 +28,7 @@ def test_HeartbeatFrame_can_be_packed_unpacked():
     assert frame.channel_id == 0
     assert isinstance(frame, af.HeartbeatFrame)
 
-    frame = af.HeartbeatFrame(0)
+    frame = af.HeartbeatFrame(0, af.HeartbeatPayload())
     stream = io.BytesIO()
     frame.to_bytestream(stream)
     assert stream.getvalue() == DATA

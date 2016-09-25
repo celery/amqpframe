@@ -4,16 +4,19 @@ amqpframe.methods
 
 Implementation of AMQP methods.
 
-This file was generated 2016-08-28 from
+This file was generated 2016-08-29 from
 /codegen/amqp0-9-1.extended.xml.
 
 """
+# There are a lot of reserved_* attributes, they are unused intentionally.
+# Disable "too many lines" too, for obvious reasons.
+# Some arguments may shadow builtins, we don't care - methods are data classes.
+# pylint: disable=unused-variable,too-many-lines,redefined-builtin
+
 import io
 import collections
 
 from . import types
-
-_recursive_equals = types._recursive_equals
 
 
 class Method:
@@ -31,8 +34,13 @@ class Method:
             self.values[name] = value
 
     @classmethod
-    def from_bytestream(cls, stream: io.BytesIO):
-        # Unpacking method type, spec 2.3.5.1 Method Frames
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        """Instantiates a `Method` subclass from the byte stream.
+
+        Which subclass' instance should be instantiated is determined
+        according to the specification, 2.3.5.1.
+        """
+
         class_id = types.UnsignedShort.from_bytestream(stream)
         method_id = types.UnsignedShort.from_bytestream(stream)
         method_cls = METHODS[(class_id.value, method_id.value)]
@@ -67,7 +75,10 @@ class Method:
         return method_cls(**kwargs)
 
     def to_bytestream(self, stream: io.BytesIO):
-        # Packing method type, spec 2.3.5.1 Method Frames
+        """Serialize the method into the byte stream according to
+        the specification, 2.3.5.1.
+        """
+
         types.UnsignedShort(self.method_type[0]).to_bytestream(stream)
         types.UnsignedShort(self.method_type[1]).to_bytestream(stream)
         bits = []
@@ -91,12 +102,8 @@ class Method:
                 type(self).__name__, name
             )) from None
 
-    def __eq__(self, other):
-        return (self.method_type == other.method_type and
-                _recursive_equals(self.values, other.values))
-
     def __repr__(self):
-        return '<{}: {}>'.format(self.__class__.__qualname__,
+        return '<{}: {}>'.format(self.__class__.__name__,
                                  ' '.join('{}={}'.format(k, v)
                                           for k, v in self.values.items()))
 

@@ -1,0 +1,8 @@
+# added by check_manifest.py
+include LICENSE
+recursive-include codegen *.py
+recursive-include codegen *.tmpl
+recursive-include codegen *.xml
+recursive-include requirements *.txt
+
+recursive-exclude * __pycache__

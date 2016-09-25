@@ -1,3 +1,10 @@
+"""
+amqpframe.basic
+~~~~~~~~~~~~~~~
+
+Implementation of AMQP Basic class.
+"""
+
 import enum
 import datetime
 import collections
@@ -21,13 +28,18 @@ PROPERTIES = (
 )
 
 
+class DeliveryMode(enum.Enum):
+    """Delivery modes for Basic message."""
+    NonPersistent = 1
+    Persistent = 2
+
+
 class Message:
+    """Basic message."""
+
     PROPERTIES = PROPERTIES
 
-    class DeliveryMode(enum.Enum):
-        NonPersistent = 1
-        Persistent = 2
-
+    # pylint: disable=unused-variable,too-many-locals
     def __init__(self, body, *,
                  content_type: str='application/octet-stream',
                  content_encoding: str='utf-8',
@@ -58,3 +70,10 @@ class Message:
             if value is not None:
                 value = amqptype(value)
             self.properties[name] = value
+    # pylint: enable=unused-variable,too-many-locals
+
+    def __getattr__(self, name):
+        try:
+            return self.properties[name]
+        except KeyError:
+            raise AttributeError(name)

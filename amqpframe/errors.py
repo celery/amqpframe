@@ -4,10 +4,12 @@ amqpframe.errors
 
 AMQP errors classes.
 
-This file was generated 2016-08-28 from
+This file was generated 2016-08-29 from
 /codegen/amqp0-9-1.extended.xml.
 
 """
+# Some exceptions may shadow builtins.
+# pylint: disable=redefined-builtin
 
 
 class Error(Exception):

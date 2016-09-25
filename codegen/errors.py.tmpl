@@ -8,6 +8,8 @@ This file was generated {{ gendate }} from
 {{ gensource }}.
 
 """
+# Some exceptions may shadow builtins.
+# pylint: disable=redefined-builtin
 
 
 class Error(Exception):

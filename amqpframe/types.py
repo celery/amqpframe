@@ -53,46 +53,10 @@ import math
 import struct
 import decimal
 import datetime
-import operator
 import functools
 import itertools
 import collections
 import collections.abc
-
-
-def _recursive_equals(first, second):
-    # TODO this ugly, cumbersome piece of code should be somehow refactored
-    first_type = type(first)
-    second_type = type(second)
-
-    valid_iterable_types = (
-        collections.OrderedDict, Array, Table, ShortStr, LongStr
-    )
-    if (first_type not in valid_iterable_types and
-            second_type not in valid_iterable_types):
-        return first == second
-
-    # If values are strings
-    valid_str_types = ShortStr, LongStr
-    if first_type in valid_str_types and second_type in valid_str_types:
-        return first == second
-
-    # At this point both first and second types are Array/Table
-    if first_type != second_type:
-        return False
-    if len(first) != len(second):
-        return False
-
-    if first_type is Array:
-        for val_first, val_second in zip(first, second):
-            if not _recursive_equals(val_first, val_second):
-                return False
-
-    # first_type is types.Table
-    return _recursive_equals(
-        sorted(first.items(), key=operator.itemgetter(0)),
-        sorted(first.items(), key=operator.itemgetter(0)),
-    )
 
 
 # Seamlessly take from itertools recipes... ;)
@@ -650,7 +614,7 @@ class Timestamp(BaseType):
             other = other.value
         diff = abs(self.value - other)
         # Spec 4.2.5.4 Timestamps, accuracy: 1 second
-        return diff < datetime.timedelta(seconds=1)
+        return diff <= datetime.timedelta(seconds=1)
 
 
 class Table(BaseType, collections.abc.MutableMapping):
@@ -731,11 +695,6 @@ class Table(BaseType, collections.abc.MutableMapping):
     def __len__(self):
         return len(self._value)
 
-    def __eq__(self, other):
-        if isinstance(other, BaseType):
-            other = other.value
-        return _recursive_equals(self._value, other)
-
     def __lt__(self, other):
         return NotImplemented
 
@@ -815,11 +774,6 @@ class Array(BaseType, collections.abc.MutableSequence):
     def __hash__(self):
         raise NotImplementedError
 
-    def __eq__(self, other):
-        if isinstance(other, BaseType):
-            other = other.value
-        return _recursive_equals(self._value, other)
-
 
 @functools.singledispatch
 def _py_type_to_amqp_type(value):
@@ -887,8 +841,8 @@ def _py_type_to_amqp_datetime(value):
     return Timestamp(value)
 
 
-@_py_type_to_amqp_type.register(collections.abc.Mapping)
-def _py_type_to_amqp_mapping(value):
+@_py_type_to_amqp_type.register(dict)
+def _py_type_to_amqp_dict(value):
     return Table(value)
 
 

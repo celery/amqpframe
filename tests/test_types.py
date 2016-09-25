@@ -1,4 +1,6 @@
 import io
+import operator
+import collections
 
 import pytest
 import hypothesis as h
@@ -23,6 +25,41 @@ NUMERIC_TYPES = (
 ITERABLE_TYPES = [at.Array, at.Table, at.ShortStr, at.LongStr]
 
 
+def deep_equals(first, second):
+    first_type = type(first)
+    second_type = type(second)
+
+    valid_iterable_types = (
+        collections.OrderedDict, at.Array, at.Table, at.ShortStr, at.LongStr
+    )
+    if (first_type not in valid_iterable_types and
+            second_type not in valid_iterable_types):
+        return first == second
+
+    # If values are strings
+    valid_str_types = at.ShortStr, at.LongStr
+    if first_type in valid_str_types and second_type in valid_str_types:
+        return first == second
+
+    # At this point both first and second types are Array/Table
+    if first_type != second_type:
+        return False
+    if len(first) != len(second):
+        return False
+
+    if first_type is at.Array:
+        for val_first, val_second in zip(first._value, second._value):
+            if not deep_equals(val_first, val_second):
+                return False
+        return True
+
+    # first_type is types.Table
+    return deep_equals(
+        sorted(first._value.items(), key=operator.itemgetter(0)),
+        sorted(second._value.items(), key=operator.itemgetter(0)),
+    )
+
+
 @h.given(hs.data())
 @pytest.mark.parametrize('type_cls', ALL_TYPES)
 def test_type_instances_can_be_packed_unpacked(type_cls, data):
@@ -35,7 +72,7 @@ def test_type_instances_can_be_packed_unpacked(type_cls, data):
     stream.seek(0)
     new = type_cls.from_bytestream(stream)
 
-    assert value == new
+    assert deep_equals(value, new)
 
 
 @h.given(hs.data())
@@ -47,7 +84,7 @@ def test_continious_bools_can_be_packed_unpacked(data):
     stream.seek(0)
     new = at.Bool.many_from_bytestream(stream, len(bools))
 
-    assert bools == new
+    assert deep_equals(bools, new)
 
 
 @h.given(hs.data())

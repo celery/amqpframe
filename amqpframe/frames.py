@@ -2,8 +2,11 @@
 amqpframe.frames
 ~~~~~~~~~~~~~~~~
 
-AMQP frames implementation.
+Implementation of AMQP frames.
 
+Frames are the core of the protocol, thus they're the core of
+the amqpframe's API.  Each frame is bound to the specific channel
+and have a payload according to the specification, 2.3.5.
 """
 
 import io
@@ -11,143 +14,91 @@ import io
 from . import basic
 from . import types
 from . import methods
-from . import constants
 
 __all__ = ['Frame', 'MethodFrame', 'ContentHeaderFrame',
            'ContentBodyFrame', 'HeartbeatFrame', 'ProtocolHeaderFrame']
 
+# Various frames related constants defined in the specification.
+FRAME_METHOD = 1
+FRAME_HEADER = 2
+FRAME_BODY = 3
+FRAME_HEARTBEAT = 8
+FRAME_MIN_SIZE = 4096
+FRAME_END = 206
+
 
 class Frame:
+    """Base class for all AMQP frames."""
 
     frame_type = None
+    """Frame type according to the spec, subclasses must provide this."""
+
+    payload_cls = None
+    """Payload implementation, subclasses must provide this."""
 
     def __init__(self, channel_id, payload):
         self.channel_id = channel_id
         self.payload = payload
 
     @classmethod
-    def from_bytestream(cls, stream: io.BytesIO, read_chunk_size=None):
-        # Spec 2.3.5 Frame Details
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        """Instantiates a `Frame` subclass from the byte stream according to
+        the specification, 2.3.5.
+
+        Deserializing some frames requires to read an unspecified amount
+        of data (possibly discovered within a previous frame), in such
+        cases `body_chunk_size` parameter is useful.
+
+        """
         frame_type = types.UnsignedByte.from_bytestream(stream)
         channel_id = types.UnsignedShort.from_bytestream(stream)
         # UnsignedLong payload size + 'size' of octets makes ByteArray useful
         payload_bytes = types.ByteArray.from_bytestream(stream)
         end = types.UnsignedByte.from_bytestream(stream)
         # Fail fast if `end` is not what we expect
-        assert end == constants.FRAME_END
+        assert end == FRAME_END
 
-        payload_stream = io.BytesIO(payload_bytes.value)
         frame_cls = FRAMES[frame_type]
-        return frame_cls.from_payload_bytestream(
-            payload_stream, channel_id, read_chunk_size=read_chunk_size
+        payload_stream = io.BytesIO(payload_bytes.value)
+        payload = frame_cls.payload_cls.from_bytestream(
+            payload_stream, body_chunk_size=body_chunk_size
         )
 
+        return frame_cls(channel_id, payload)
+
     def to_bytestream(self, stream: io.BytesIO):
-        # Spec 2.3.5 Frame Details
+        """Serializes the frame into the byte stream according to the
+        specification, 2.3.5."""
         types.UnsignedByte(self.frame_type).to_bytestream(stream)
         types.UnsignedShort(self.channel_id).to_bytestream(stream)
         self.payload.to_bytestream(stream)
-        types.UnsignedByte(constants.FRAME_END).to_bytestream(stream)
+        types.UnsignedByte(FRAME_END).to_bytestream(stream)
 
 
-class MethodFrame(Frame):
-    frame_type = constants.FRAME_METHOD
-
-    @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
-                                read_chunk_size=None):
-        payload = methods.Method.from_bytestream(payload_stream)
-        return cls(channel_id, payload)
-
-
-class ContentHeaderFrame(Frame):
-    frame_type = constants.FRAME_HEADER
+class Payload:
+    """Base class for all payload classes."""
 
     @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
-                                read_chunk_size=None):
-        payload = ContentHeaderPayload.from_bytestream(payload_stream)
-        return cls(channel_id, payload)
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        """Deserialize the payload from the byte stream."""
+        raise NotImplementedError()
+
+    def to_bytestream(self, stream: io.BytesIO):
+        """Serialize the payload to the byte stream."""
+        raise NotImplementedError()
 
 
-class ContentBodyFrame(Frame):
-    frame_type = constants.FRAME_BODY
+class ContentHeaderPayload(Payload):
+    """0          2        4           12               14.
 
-    @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO,
-                                channel_id, read_chunk_size):
-        payload = ContentBodyPayload.from_bytestream(payload_stream,
-                                                     read_chunk_size)
-        return cls(channel_id, payload)
+    +----------+--------+-----------+----------------+------------- - -
+    | class-id | weight | body size | property flags | property list...
+    +----------+--------+-----------+----------------+------------- - -
+        short    short    long long       short          remainder...
 
+    Specification 4.2.6.1.
 
-class HeartbeatFrame(Frame):
-    frame_type = constants.FRAME_HEARTBEAT
-    channel_id = 0
-
-    def __init__(self, channel_id, payload=None):
-        assert channel_id == self.channel_id
-        if payload is None:
-            payload = HeartbeatPayload()
-        super().__init__(channel_id, payload)
-
-    @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
-                                read_chunk_size=None):
-        payload = HeartbeatPayload()
-        return cls(channel_id, payload)
-
-
-class ProtocolHeaderFrame(Frame):
-    """This is actually not a frame - just bytes, but it's quite handy
-    to pretend it is a frame to unify `input bytes -> frames -> output bytes`
-    sequence.
     """
-
-    @classmethod
-    def from_bytestream(cls, stream: io.BytesIO, read_chunk_size=None):
-        return cls.from_payload_bytestream(stream, None, read_chunk_size)
-
-    def to_bytestream(self, stream: io.BytesIO):
-        self.payload.to_bytestream(stream)
-
-    @classmethod
-    def from_payload_bytestream(cls, payload_stream: io.BytesIO, channel_id,
-                                read_chunk_size=None):
-        payload = ProtocolHeaderPayload.from_bytestream(payload_stream)
-        return cls(channel_id, payload)
-
-
-class ProtocolHeaderPayload:
-
-    PREFIX = b'AMQP\x00'
-
-    def __init__(self,
-                 protocol_major=0,
-                 protocol_minor=9,
-                 protocol_revision=1):
-        self.protocol_major = protocol_major
-        self.protocol_minor = protocol_minor
-        self.protocol_revision = protocol_revision
-
-    def to_bytestream(self, stream: io.BytesIO):
-        # Spec 4.2.2 Protocol Header
-        stream.write(self.PREFIX)
-        types.UnsignedByte(self.protocol_major).to_bytestream(stream)
-        types.UnsignedByte(self.protocol_minor).to_bytestream(stream)
-        types.UnsignedByte(self.protocol_revision).to_bytestream(stream)
-
-    @classmethod
-    def from_bytestream(cls, stream: io.BytesIO):
-        protocol = stream.read(5)
-        assert protocol == b'AMQP\x00'
-        protocol_major = types.UnsignedByte.from_bytestream(stream)
-        protocol_minor = types.UnsignedByte.from_bytestream(stream)
-        protocol_revision = types.UnsignedByte.from_bytestream(stream)
-        return cls(protocol_major, protocol_minor, protocol_revision)
-
-
-class ContentHeaderPayload:
 
     def __init__(self, class_id, body_length, properties):
         self.class_id = class_id
@@ -160,16 +111,38 @@ class ContentHeaderPayload:
                 self.body_length == other.body_length and
                 self.properties == other.properties)
 
+    @classmethod
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        class_id = types.UnsignedShort.from_bytestream(stream)
+        weight = types.UnsignedShort.from_bytestream(stream)
+        assert weight == 0
+        body_length = types.UnsignedLongLong.from_bytestream(stream)
+        property_flags = types.UnsignedShort.from_bytestream(stream)
+
+        class_properties = PROPERTIES_BY_CLASS_ID[class_id]
+        number_of_properties = len(class_properties)
+
+        properties = []
+
+        for i, (_, amqptype) in enumerate(class_properties):
+            pos = number_of_properties - i
+            value = None
+            if property_flags & (1 << pos):
+                value = amqptype.from_bytestream(stream)
+            properties.append(value)
+
+        return cls(class_id, body_length, properties)
+
     def to_bytestream(self, stream: io.BytesIO):
-        # Spec 2.3.5.2 Content Frames
+        class_properties = PROPERTIES_BY_CLASS_ID[self.class_id]
+
         types.UnsignedShort(self.class_id).to_bytestream(stream)
         types.UnsignedShort(self.weight).to_bytestream(stream)
         types.UnsignedLongLong(self.body_length).to_bytestream(stream)
 
-        # TODO implement support for more than 14 properties
         properties = bytearray()
         property_flags = 0
-        bitshift = 15
+        bitshift = len(class_properties)
 
         for val in self.properties:
             if val is not None:
@@ -180,58 +153,167 @@ class ContentHeaderPayload:
         types.UnsignedShort(property_flags).to_bytestream(stream)
         stream.write(properties)
 
-    @classmethod
-    def from_bytestream(cls, stream: io.BytesIO):
-        class_id = types.UnsignedShort.from_bytestream(stream)
-        weight = types.UnsignedShort.from_bytestream(stream)
-        assert weight == 0
-        body_length = types.UnsignedLongLong.from_bytestream(stream)
-        property_flags = types.UnsignedShort.from_bytestream(stream)
 
-        PROPERTIES = PROPERTIES_BY_CLASS_ID[class_id]
+class ContentBodyPayload(Payload):
+    """+-----------------------+ +-----------+
 
-        props = []
+    | Opaque binary payload | | frame-end |
+    +-----------------------+ +-----------+
 
-        # TODO implement support for more than 14 properties
-        for i, (_, amqptype) in enumerate(PROPERTIES):
-            pos = 15 - i  # We started from `content_type` witch has pos==15
-            if property_flags & (1 << pos):
-                props.append(amqptype.from_bytestream(stream))
-            else:
-                props.append(None)
+    Specification 4.2.6.2.
 
-        return cls(class_id, body_length, props)
-
-
-class ContentBodyPayload:
+    """
 
     def __init__(self, data):
         self.data = data
-
-    def to_bytestream(self, stream):
-        stream.write(self.data)
 
     @classmethod
     def from_bytestream(cls, stream, body_chunk_size):
         return cls(stream.read(body_chunk_size))
 
-    def __len__(self):
-        return len(self.data)
-
-
-class HeartbeatPayload:
-
     def to_bytestream(self, stream):
-        types.ByteArray(b'').to_bytestream(stream)
+        stream.write(self.data)
 
 
-FRAMES = {
-    MethodFrame.frame_type: MethodFrame,
-    ContentHeaderFrame.frame_type: ContentHeaderFrame,
-    ContentBodyFrame.frame_type: ContentBodyFrame,
-    HeartbeatFrame.frame_type: HeartbeatFrame,
-}
+class HeartbeatPayload(Payload):
+    """0     1     2     3           4.
 
+    +-----+-----+-----+-----------+
+    | 0x8 | 0x0 | 0x0 | frame-end |
+    +-----+-----+-----+-----------+
+
+    Specification 4.2.7.
+
+    """
+
+    def __init__(self):
+        self.data = b''
+
+    @classmethod
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        return cls()
+
+    def to_bytestream(self, stream: io.BytesIO):
+        types.ByteArray(self.data).to_bytestream(stream)
+
+
+class ProtocolHeaderPayload(Payload):
+    """0   1   2   3   4   5   6   7   8.
+
+    +---+---+---+---+---+---+---+---+
+    |'A'|'M'|'Q'|'P'| 0 | 0 | 9 | 1 |
+    +---+---+---+---+---+---+---+---+
+
+    Specification 4.2.2.
+
+    """
+
+    PREFIX = b'AMQP\x00'
+
+    def __init__(self,
+                 protocol_major=0,
+                 protocol_minor=9,
+                 protocol_revision=1):
+        self.protocol_major = protocol_major
+        self.protocol_minor = protocol_minor
+        self.protocol_revision = protocol_revision
+
+    @classmethod
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        protocol = stream.read(5)
+        assert protocol == b'AMQP\x00'
+        protocol_major = types.UnsignedByte.from_bytestream(stream)
+        protocol_minor = types.UnsignedByte.from_bytestream(stream)
+        protocol_revision = types.UnsignedByte.from_bytestream(stream)
+        return cls(protocol_major, protocol_minor, protocol_revision)
+
+    def to_bytestream(self, stream: io.BytesIO):
+        stream.write(self.PREFIX)
+        types.UnsignedByte(self.protocol_major).to_bytestream(stream)
+        types.UnsignedByte(self.protocol_minor).to_bytestream(stream)
+        types.UnsignedByte(self.protocol_revision).to_bytestream(stream)
+
+
+class MethodFrame(Frame):
+    """Method frames carry the high-level protocol commands (which are called
+    "methods"). One method frame carries one command.
+
+    Specification 2.3.5.1, 4.2.4.
+
+    """
+
+    frame_type = FRAME_METHOD
+    payload_cls = methods.Method
+
+
+class ContentHeaderFrame(Frame):
+    """Content is the application data we carry from client-to-client via the
+    AMQP server. Content is, roughly speaking, a set of properties plus a
+    binary data part. The set of allowed properties are defined by the Basic
+    class, and these form the "content header frame". The data can be any size,
+    and MAY be broken into several (or many) chunks, each forming a "content
+    body frame".
+
+    Speficiation 2.3.5.2, 4.2.6.
+
+    """
+
+    frame_type = FRAME_HEADER
+    payload_cls = ContentHeaderPayload
+
+
+class ContentBodyFrame(Frame):
+    """The content body payload is an opaque binary block followed by a frame
+    end octet. The content body can be split into as many frames as needed. The
+    maximum size of the frame payload is agreed upon by both peers during
+    connection negotiation.
+
+    Specification 2.3.5.2, 4.2.6.2.
+
+    """
+
+    frame_type = FRAME_BODY
+    payload_cls = ContentBodyPayload
+
+
+class HeartbeatFrame(Frame):
+    """Heartbeat frames tell the recipient that the sender is still alive. The
+    rate and timing of heartbeat frames is negotiated during connection tuning.
+
+    Specification 2.3.5.3, 4.2.7.
+
+    """
+
+    frame_type = FRAME_HEARTBEAT
+    payload_cls = HeartbeatPayload
+    expected_channel_id = 0
+
+    def __init__(self, channel_id, payload):
+        assert channel_id == self.expected_channel_id
+        super().__init__(channel_id, payload)
+
+
+class ProtocolHeaderFrame(Frame):
+    """This is actually not a frame according to the protocol - just bytes,
+    but it's quite handy to pretend it is a frame to unify
+    `input bytes -> frames -> output bytes` sequence.
+
+    Specification 4.2.2.
+    """
+
+    payload_cls = ProtocolHeaderPayload
+
+    @classmethod
+    def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
+        payload = cls.payload_cls.from_bytestream(stream, body_chunk_size)
+        return cls(None, payload)
+
+    def to_bytestream(self, stream: io.BytesIO):
+        self.payload.to_bytestream(stream)
+
+
+# pylint: disable=no-member
+FRAMES = {cls.frame_type: cls for cls in Frame.__subclasses__()}
 
 # Just in case somebody will want to add non-basic stuff...
 PROPERTIES_BY_CLASS_ID = {
