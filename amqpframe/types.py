@@ -106,16 +106,16 @@ class BaseType:
 
     def __eq__(self, other):
         if isinstance(other, BaseType):
-            other = other.value
-        return self.value == other
+            other = other._value
+        return self._value == other
 
     def __lt__(self, other):
         if isinstance(other, BaseType):
-            other = other.value
-        return self.value < other
+            other = other._value
+        return self._value < other
 
     def __hash__(self):
-        return hash(self.value)
+        return hash(self._value)
 
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__name__, self.value)

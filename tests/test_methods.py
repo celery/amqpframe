@@ -1,4 +1,5 @@
 import io
+import operator
 
 import amqpframe.methods as am
 
@@ -7,7 +8,6 @@ import hypothesis as h
 import hypothesis.strategies as hs
 
 from . import strategies
-from .test_types import deep_equals
 
 
 @hs.composite
@@ -67,5 +67,4 @@ def test_methods_can_be_packed_unpacked_with_arbitrary_arguments(method_cls, dat
     stream.seek(0)
     unpacked = am.Method.from_bytestream(stream)
 
-    assert method.method_type == unpacked.method_type
-    assert deep_equals(method.values, unpacked.values)
+    assert method == unpacked

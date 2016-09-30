@@ -102,6 +102,10 @@ class Method:
                 type(self).__name__, name
             )) from None
 
+    def __eq__(self, other):
+        return (self.method_type == other.method_type and
+                self.values == other.values)
+
     def __repr__(self):
         return '<{}: {}>'.format(self.__class__.__name__,
                                  ' '.join('{}={}'.format(k, v)
