@@ -81,22 +81,21 @@ class Payload:
     @classmethod
     def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
         """Deserialize the payload from the byte stream."""
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def to_bytestream(self, stream: io.BytesIO):
         """Serialize the payload to the byte stream."""
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 class ContentHeaderPayload(Payload):
-    """0          2        4           12               14.
+    """Specification 4.2.6.1.
 
+    0          2        4           12               14.
     +----------+--------+-----------+----------------+------------- - -
     | class-id | weight | body size | property flags | property list...
     +----------+--------+-----------+----------------+------------- - -
         short    short    long long       short          remainder...
-
-    Specification 4.2.6.1.
 
     """
 
@@ -155,12 +154,11 @@ class ContentHeaderPayload(Payload):
 
 
 class ContentBodyPayload(Payload):
-    """+-----------------------+ +-----------+
+    """Specification 4.2.6.2.
 
+    +-----------------------+ +-----------+
     | Opaque binary payload | | frame-end |
     +-----------------------+ +-----------+
-
-    Specification 4.2.6.2.
 
     """
 
@@ -176,13 +174,12 @@ class ContentBodyPayload(Payload):
 
 
 class HeartbeatPayload(Payload):
-    """0     1     2     3           4.
+    """Specification 4.2.7.
 
+    0     1     2     3           4.
     +-----+-----+-----+-----------+
     | 0x8 | 0x0 | 0x0 | frame-end |
     +-----+-----+-----+-----------+
-
-    Specification 4.2.7.
 
     """
 
@@ -198,13 +195,12 @@ class HeartbeatPayload(Payload):
 
 
 class ProtocolHeaderPayload(Payload):
-    """0   1   2   3   4   5   6   7   8.
+    """Specification 4.2.2.
 
+    0   1   2   3   4   5   6   7   8.
     +---+---+---+---+---+---+---+---+
     |'A'|'M'|'Q'|'P'| 0 | 0 | 9 | 1 |
     +---+---+---+---+---+---+---+---+
-
-    Specification 4.2.2.
 
     """
 
