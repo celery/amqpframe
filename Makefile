@@ -23,5 +23,5 @@ codestyle-autoformat: codestyle-deps
 codestyle-deps:
 	$(PIP) install -r requirements/codestyle.txt
 
-unittest:
+unittests:
 	$(PYTEST) -v -l --cov=amqpframe --cov-report=term-missing:skip-covered tests
