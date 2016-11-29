@@ -8,10 +8,9 @@ utf8encode = functools.partial(str.encode, encoding='utf-8')
 
 
 def validate(cls):
-    @functools.wraps(cls.validate)
     def inner(value):
         try:
-            cls.validate(value)
+            cls(value)
             return True
         except ValueError:
             return False

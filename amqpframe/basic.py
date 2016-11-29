@@ -34,13 +34,18 @@ class DeliveryMode(enum.Enum):
     Persistent = 2
 
 
+_omit = object()
+
+
 class Message:
     """Basic message."""
 
     PROPERTIES = PROPERTIES
 
     # pylint: disable=unused-variable,too-many-locals
-    def __init__(self, body, *,
+    def __init__(self, body=b'', *,
+                 delivery_info: dict=None,
+                 body_size: int=None,
                  content_type: str='application/octet-stream',
                  content_encoding: str='utf-8',
                  headers: dict=None,
@@ -54,26 +59,40 @@ class Message:
                  type: str=None,
                  user_id: str=None,
                  app_id: str=None):
-        if isinstance(body, bytes):
-            self.body = body
-        else:
-            self.body = body.encode(content_encoding)
 
+        if not isinstance(body, bytes):
+            body = body.encode(content_encoding)
         if timestamp is None:
             timestamp = datetime.datetime.utcnow()
 
-        # Too lazy to manually specify all names :)
-        _locals = locals()
-        self.properties = collections.OrderedDict()
-        for name, amqptype in self.PROPERTIES:
-            value = _locals[name]
-            if value is not None:
-                value = amqptype(value)
-            self.properties[name] = value
+        # Special attribute containing information
+        # received by BasicDeliver/BasicGetOk/etc
+        self.delivery_info = delivery_info
+
+        self.body_size = body_size
+
+        self.properties = {
+            'body': body,
+            'content_type': content_type,
+            'content_encoding': content_encoding,
+            'headers': headers,
+            'delivery_mode': delivery_mode,
+            'priority': priority,
+            'correlation_id': correlation_id,
+            'reply_to': reply_to,
+            'expiration': expiration,
+            'message_id': message_id,
+            'timestamp': timestamp,
+            'type': type,
+            'user_id': user_id,
+            'app_id': app_id,
+        }
+        self.__dict__.update(**self.properties)
     # pylint: enable=unused-variable,too-many-locals
 
-    def __getattr__(self, name):
-        try:
-            return self.properties[name]
-        except KeyError:
-            raise AttributeError(name)
+    @property
+    def decoded_body(self):
+        body = self.body
+        if isinstance(body, bytes):
+            body = body.decode(self.content_encoding)
+        return body

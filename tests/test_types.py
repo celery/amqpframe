@@ -87,16 +87,6 @@ def test_iterable_type_instances_are_unordered():
         first < second
 
 
-def test_voids_are_unordered():
-    first = at.Void()
-    second = at.Void()
-
-    assert first == second
-
-    with pytest.raises(TypeError):
-        first < second
-
-
 @h.given(hs.data())
 def test_timestamps_are_ordered(data):
     first = at.Timestamp(data.draw(strategies.timestamps))

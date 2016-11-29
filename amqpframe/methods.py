@@ -43,7 +43,7 @@ class Method:
 
         class_id = types.UnsignedShort.from_bytestream(stream)
         method_id = types.UnsignedShort.from_bytestream(stream)
-        method_cls = METHODS[(class_id.value, method_id.value)]
+        method_cls = METHODS[(class_id, method_id)]
 
         kwargs = {}
         bit_names = []
@@ -84,7 +84,7 @@ class Method:
         bits = []
         for value in self.values.values():
             if isinstance(value, types.Bool):
-                bits.append(value.value)
+                bits.append(value)
             else:
                 if bits:
                     types.Bool.many_to_bytestream(bits, stream)

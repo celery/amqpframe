@@ -10,13 +10,17 @@ and have a payload according to the specification, 2.3.5.
 """
 
 import io
+import struct
 
 from . import basic
 from . import types
 from . import methods
 
-__all__ = ['Frame', 'MethodFrame', 'ContentHeaderFrame',
-           'ContentBodyFrame', 'HeartbeatFrame', 'ProtocolHeaderFrame']
+__all__ = ['Frame', 'MethodFrame',
+           'ContentHeaderFrame', 'ContentHeaderPayload',
+           'ContentBodyFrame', 'ContentBodyPayload',
+           'HeartbeatFrame', 'HeartbeatPayload',
+           'ProtocolHeaderFrame', 'ProtocolHeaderPayload']
 
 # Various frames related constants defined in the specification.
 FRAME_METHOD = 1
@@ -51,6 +55,11 @@ class Frame:
 
         """
         frame_type = types.UnsignedByte.from_bytestream(stream)
+        if frame_type == 65:
+            # Not a real frame type - just b'A' from b'AMQP'
+            stream.seek(stream.tell() - 1)
+            return ProtocolHeaderFrame.from_bytestream(stream)
+
         channel_id = types.UnsignedShort.from_bytestream(stream)
         # UnsignedLong payload size + 'size' of octets makes ByteArray useful
         payload_bytes = types.ByteArray.from_bytestream(stream)
@@ -59,7 +68,7 @@ class Frame:
         assert end == FRAME_END
 
         frame_cls = FRAMES[frame_type]
-        payload_stream = io.BytesIO(payload_bytes.value)
+        payload_stream = io.BytesIO(payload_bytes)
         payload = frame_cls.payload_cls.from_bytestream(
             payload_stream, body_chunk_size=body_chunk_size
         )
@@ -99,15 +108,16 @@ class ContentHeaderPayload(Payload):
 
     """
 
-    def __init__(self, class_id, body_length, properties):
+    def __init__(self, class_id, body_size, properties, weight=0):
         self.class_id = class_id
-        self.body_length = body_length
+        self.body_size = body_size
         self.properties = properties
-        self.weight = 0
+        self.weight = weight
 
     def __eq__(self, other):
         return (self.class_id == other.class_id and
-                self.body_length == other.body_length and
+                self.body_size == other.body_size and
+                self.weight == other.weigth and
                 self.properties == other.properties)
 
     @classmethod
@@ -115,7 +125,7 @@ class ContentHeaderPayload(Payload):
         class_id = types.UnsignedShort.from_bytestream(stream)
         weight = types.UnsignedShort.from_bytestream(stream)
         assert weight == 0
-        body_length = types.UnsignedLongLong.from_bytestream(stream)
+        body_size = types.UnsignedLongLong.from_bytestream(stream)
         property_flags = types.UnsignedShort.from_bytestream(stream)
 
         class_properties = PROPERTIES_BY_CLASS_ID[class_id]
@@ -130,14 +140,14 @@ class ContentHeaderPayload(Payload):
                 value = amqptype.from_bytestream(stream)
             properties.append(value)
 
-        return cls(class_id, body_length, properties)
+        return cls(class_id, body_size, properties, weight)
 
     def to_bytestream(self, stream: io.BytesIO):
         class_properties = PROPERTIES_BY_CLASS_ID[self.class_id]
 
         types.UnsignedShort(self.class_id).to_bytestream(stream)
         types.UnsignedShort(self.weight).to_bytestream(stream)
-        types.UnsignedLongLong(self.body_length).to_bytestream(stream)
+        types.UnsignedLongLong(self.body_size).to_bytestream(stream)
 
         properties = bytearray()
         property_flags = 0
@@ -217,7 +227,8 @@ class ProtocolHeaderPayload(Payload):
     @classmethod
     def from_bytestream(cls, stream: io.BytesIO, body_chunk_size=None):
         protocol = stream.read(5)
-        assert protocol == b'AMQP\x00'
+        if protocol != b'AMQP\x00':
+            raise TypeError
         protocol_major = types.UnsignedByte.from_bytestream(stream)
         protocol_minor = types.UnsignedByte.from_bytestream(stream)
         protocol_revision = types.UnsignedByte.from_bytestream(stream)
