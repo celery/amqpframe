@@ -11,7 +11,7 @@ import collections
 
 from . import types
 
-PROPERTIES = (
+PROPERTIES = collections.OrderedDict((
     ('content_type', types.Shortstr),
     ('content_encoding', types.Shortstr),
     ('headers', types.Table),
@@ -25,7 +25,7 @@ PROPERTIES = (
     ('type', types.Shortstr),
     ('user_id', types.Shortstr),
     ('app_id', types.Shortstr),
-)
+))
 
 
 class DeliveryMode(enum.Enum):
@@ -69,24 +69,24 @@ class Message:
         # received by BasicDeliver/BasicGetOk/etc
         self.delivery_info = delivery_info
 
+        self.body = body
         self.body_size = body_size
 
-        self.properties = {
-            'body': body,
-            'content_type': content_type,
-            'content_encoding': content_encoding,
-            'headers': headers,
-            'delivery_mode': delivery_mode,
-            'priority': priority,
-            'correlation_id': correlation_id,
-            'reply_to': reply_to,
-            'expiration': expiration,
-            'message_id': message_id,
-            'timestamp': timestamp,
-            'type': type,
-            'user_id': user_id,
-            'app_id': app_id,
-        }
+        self.properties = collections.OrderedDict((
+            ('content_type', content_type),
+            ('content_encoding', content_encoding),
+            ('headers', headers),
+            ('delivery_mode', delivery_mode),
+            ('priority', priority),
+            ('correlation_id', correlation_id),
+            ('reply_to', reply_to),
+            ('expiration', expiration),
+            ('message_id', message_id),
+            ('timestamp', timestamp),
+            ('type', type),
+            ('user_id', user_id),
+            ('app_id', app_id),
+        ))
         self.__dict__.update(**self.properties)
     # pylint: enable=unused-variable,too-many-locals
 

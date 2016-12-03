@@ -22,6 +22,8 @@ from . import types
 class Method:
     """Base class for all AMQP methods."""
 
+    content = False
+
     def __init__(self, *values):
         assert len(values) == len(self.field_info)
 
@@ -1234,6 +1236,8 @@ class BasicPublish(Method):
 
     synchronous = False
 
+    content = True
+
     def __init__(self, *,
                  reserved_1=None,
                  exchange,
@@ -1272,6 +1276,8 @@ class BasicReturn(Method):
 
     synchronous = False
 
+    content = True
+
     def __init__(self, *,
                  reply_code,
                  reply_text,
@@ -1309,6 +1315,8 @@ class BasicDeliver(Method):
     )
 
     synchronous = False
+
+    content = True
 
     def __init__(self, *,
                  consumer_tag,
@@ -1379,6 +1387,8 @@ class BasicGetOK(Method):
     )
 
     synchronous = True
+
+    content = True
 
     def __init__(self, *,
                  delivery_tag,

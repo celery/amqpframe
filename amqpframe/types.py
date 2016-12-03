@@ -49,17 +49,8 @@ import struct
 import decimal
 import datetime
 import functools
-import itertools
 import collections
 import collections.abc
-
-
-# Seamlessly taken from itertools recipes... ;)
-def grouper(iterable, group_size, fillvalue=None):
-    """Collect data into fixed-length chunks or blocks."""
-    # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx"
-    args = [iter(iterable)] * group_size
-    return itertools.zip_longest(*args, fillvalue=fillvalue)
 
 
 class BaseType:
@@ -89,19 +80,6 @@ class BaseType:
         return '<{}: {}>'.format(self.__class__.__name__, self)
 
 
-def _bytes2bits(byte, reminder):
-    byte = int.from_bytes(byte, byteorder='big')
-    bits = bin(byte)[2:]  # Strip '0b'
-    # Unfortunately, int.from_bytes strips leading zeroes, let's get them back
-    to_fill = reminder // 8
-    if reminder % 8 != 0:
-        to_fill += 1
-    to_fill *= 8
-    bits = bits.zfill(to_fill)
-    # Get rid of unnecessary bits
-    return bits[:reminder]
-
-
 class Bool(BaseType):
 
     TABLE_LABEL = b't'
@@ -121,20 +99,33 @@ class Bool(BaseType):
         return struct.unpack('!?', stream.read(1))[0], 1
 
     @classmethod
-    def pack_many(cls, value):
-        result = []
-        for values in grouper(value, 8, False):
-            total = ''.join('1' if v else '0' for v in values)
-            result.append(UnsignedByte(int(total, 2)).pack())
-        return b''.join(result)
+    def pack_many(cls, values):
+        if not values:
+            return b''
+        result = 0
+        bitshift = 0
+        for val in values:
+            if val:
+                result |= (1 << bitshift)
+            bitshift += 1
+        bytes_count = len(values) // 8
+        if len(values) % 8 != 0:
+            bytes_count += 1
+        return result.to_bytes(bytes_count, 'big')
 
     @classmethod
     def unpack_many(cls, stream, number_of_bits):
+        if not number_of_bits:
+            return []
         bytes_count = number_of_bits // 8
         if number_of_bits % 8 != 0:
             bytes_count += 1
-        bits = _bytes2bits(stream.read(bytes_count), number_of_bits)
-        return [cls(b == '1') for b in bits]
+        bits = int.from_bytes(stream.read(bytes_count), 'big')
+        result = []
+        for i in range(number_of_bits):
+            value = bits & (1 << i)
+            result.append(cls(value))
+        return result
 
     @classmethod
     def many_to_bytestream(cls, bools, stream):

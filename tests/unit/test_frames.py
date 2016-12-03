@@ -21,7 +21,7 @@ def test_HeaderFrame_can_be_packed_unpacked():
 
 
 def test_HeartbeatFrame_can_be_packed_unpacked():
-    DATA = b'\x08\x00\x00\x00\x00\x00\x00\xce'
+    DATA = b'\x08\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00\xce'
 
     stream = io.BytesIO(DATA)
     frame = af.Frame.from_bytestream(stream)

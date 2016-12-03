@@ -78,9 +78,13 @@ class Frame:
     def to_bytestream(self, stream: io.BytesIO):
         """Serializes the frame into the byte stream according to the
         specification, 2.3.5."""
+        buf = io.BytesIO()
+        self.payload.to_bytestream(buf)
+
         types.UnsignedByte(self.frame_type).to_bytestream(stream)
         types.UnsignedShort(self.channel_id).to_bytestream(stream)
-        self.payload.to_bytestream(stream)
+        types.UnsignedLong(buf.tell()).to_bytestream(stream)
+        stream.write(buf.getvalue())
         types.UnsignedByte(FRAME_END).to_bytestream(stream)
 
 
@@ -129,16 +133,16 @@ class ContentHeaderPayload(Payload):
         property_flags = types.UnsignedShort.from_bytestream(stream)
 
         class_properties = PROPERTIES_BY_CLASS_ID[class_id]
-        number_of_properties = len(class_properties)
+        number_of_properties = 15
 
-        properties = []
+        properties = {}
 
-        for i, (_, amqptype) in enumerate(class_properties):
+        for i, (name, amqptype) in enumerate(class_properties.items()):
             pos = number_of_properties - i
             value = None
             if property_flags & (1 << pos):
                 value = amqptype.from_bytestream(stream)
-            properties.append(value)
+            properties[name] = value
 
         return cls(class_id, body_size, properties, weight)
 
@@ -151,12 +155,15 @@ class ContentHeaderPayload(Payload):
 
         properties = bytearray()
         property_flags = 0
-        bitshift = len(class_properties)
+        bitshift = 15
 
-        for val in self.properties:
+        for name, val in self.properties.items():
             if val is not None:
+                if not isinstance(val, types.BaseType):
+                    amqptype = class_properties[name]
+                    val = amqptype(val)
                 property_flags |= (1 << bitshift)
-                properties.append(val.pack(val))
+                properties += val.pack()
             bitshift -= 1
 
         types.UnsignedShort(property_flags).to_bytestream(stream)
