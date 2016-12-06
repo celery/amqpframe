@@ -33,10 +33,11 @@ def test_methods_can_be_instantiated_with_Nones(method_cls, data):
     assert method
 
 
-@h.given(hs.data())
-@pytest.mark.parametrize('method_cls', am.Method.__subclasses__())
-def test_methods_provide_attribute_access(method_cls, data):
-    method = data.draw(methods(method_cls, generate_arguments=False))
+def test_methods_provide_attribute_access():
+    method = am.ExchangeDeclare(
+        exchange='exchange', type='direct', passive=False, durable=False,
+        auto_delete=True, internal=False, no_wait=False, arguments=None,
+    )
     for name, value in method.values.items():
         attr_value = getattr(method, name)
         assert attr_value is value
